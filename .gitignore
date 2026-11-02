@@ -1,1 +1,15 @@
 .local/
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Downloaded market data and derived matrices (rebuild with `twrank fetch` / `twrank features`)
+/data/
+
+# Local agent notes (not part of the public repo)
+AGENTS.md
+agents/
+altar/

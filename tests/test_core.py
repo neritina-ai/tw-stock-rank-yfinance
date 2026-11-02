@@ -1,0 +1,145 @@
+"""Unit tests on synthetic data (no download needed)."""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from twrank import backtest, data, features, portfolio, stacked
+
+
+def _days(n=400, start="2020-01-01"):
+    return pd.bdate_range(start, periods=n)
+
+
+def _panels(days, n_stocks=6, seed=0):
+    rng = np.random.default_rng(seed)
+    cols = [f"S{i}" for i in range(n_stocks)]
+    r = rng.normal(0.0005, 0.02, (len(days), n_stocks))
+    close = pd.DataFrame(100 * np.exp(np.cumsum(r, axis=0)), index=days, columns=cols)
+    openp = close.shift(1).fillna(close) * np.exp(rng.normal(0, 0.005, close.shape))
+    high = np.maximum(close, openp) * 1.01
+    low = np.minimum(close, openp) * 0.99
+    vol = pd.DataFrame(rng.uniform(1e5, 1e6, close.shape), index=days, columns=cols)
+    return {"open": openp, "high": high, "low": low, "close": close, "volume": vol,
+            "turnover": close * vol}
+
+
+def test_features_use_only_past_data():
+    days = _days()
+    P = _panels(days)
+    mkt = P["close"].mean(axis=1)
+    cut = 300
+    full = dict(features.raw_features(P, mkt))
+    trunc = dict(features.raw_features({k: v.iloc[:cut] for k, v in P.items()}, mkt.iloc[:cut]))
+    assert list(full) == features.FEATURES
+    for name in features.FEATURES:
+        a = full[name].iloc[:cut].to_numpy()
+        b = trunc[name].to_numpy()
+        assert np.allclose(a, b, equal_nan=True), name
+
+
+def test_week_starts_postpone_and_merge():
+    days = pd.DatetimeIndex(["2024-01-02", "2024-01-03",  # Monday closed -> Tuesday
+                             "2024-01-08", "2024-01-09",
+                             # week of 2024-01-15 fully closed
+                             "2024-01-24", "2024-01-25"])
+    ws = features.week_starts(days)
+    assert list(ws.strftime("%m-%d")) == ["01-02", "01-08", "01-24"]
+
+
+def test_monthly_dates_postpone_only():
+    days = pd.bdate_range("2024-01-01", "2024-04-30")
+    days = days.drop(pd.DatetimeIndex(["2024-02-09", "2024-02-12", "2024-02-13", "2024-03-01"]))
+    got = portfolio.monthly_dates(days, 9)
+    assert list(got.strftime("%m-%d")) == ["01-09", "02-14", "03-11", "04-09"]
+    got = portfolio.monthly_dates(days, 1)
+    assert list(got.strftime("%m-%d")) == ["01-01", "02-01", "03-04", "04-01"]
+
+
+def test_clean_bars_drops_zero_volume_and_spikes():
+    idx = pd.bdate_range("2020-01-01", periods=8)
+    px = np.array([10, 10.2, 10.1, 15.0, 10.3, 10.2, 10.4, 10.5])
+    df = pd.DataFrame({"Open": px, "High": px, "Low": px, "Close": px, "Adj Close": px,
+                       "Volume": [1, 1, 1, 1, 1, 0, 1, 1]}, index=idx)
+    out, n_zero, n_spike = data.clean_bars(df)
+    assert n_zero == 1 and n_spike == 1
+    assert idx[3] not in out.index and idx[5] not in out.index
+
+
+def test_fix_jumps_clips_unadjusted_action():
+    idx = pd.bdate_range("2021-01-01", periods=12)
+    px = np.array([100, 101, 102, 103, 104, 105, 106, 53, 54, 55, 56, 57.0])  # 2:1 not adjusted
+    df = pd.DataFrame({"Close": px, "Adj Close": px}, index=idx)
+    out, n = data.fix_jumps(df, idx)
+    assert n == 1
+    r = out["Adj Close"].pct_change().dropna()
+    assert r.min() == pytest.approx(-0.10, abs=1e-9)
+    assert out["Adj Close"].iloc[-1] == pytest.approx(57.0)
+
+
+def test_backtest_open_execution_and_costs(monkeypatch):
+    days = _days(10)
+    o = pd.DataFrame({"A": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19.0]}, index=days)
+    c = o * 1.01
+
+    class M:
+        pass
+
+    m = M()
+    m.days, m.open, m.close = days, o, c
+    m.arrays = backtest.Market.arrays.__get__(m)
+    monkeypatch.setattr(backtest, "_MARKET", m)
+    W = pd.DataFrame({"A": [1.0]}, index=[days[2]])
+    res = backtest.run(W, days[0], days[-1], limit_guard=False)
+    assert res.ret.iloc[:2].abs().sum() == 0
+    # day 2: buy at the open, earn open->close, pay the buy cost
+    assert res.ret.iloc[2] == pytest.approx(1.01 - 1 - backtest.BUY_COST)
+    # day 3: overnight c(2)->o(3) then o(3)->c(3)
+    assert res.ret.iloc[3] == pytest.approx(13 * 1.01 / (12 * 1.01) - 1)
+    assert res.turnover.sum() == pytest.approx(1.0)
+
+
+def test_book_buffer_keeps_names_inside_band(monkeypatch):
+    days = pd.bdate_range("2024-01-01", periods=15)
+    cols = list("ABCDEFGH")
+    # week 1: A,B best; week 2: A drops to rank 3 (inside band 2*2=4), C rises
+    s = pd.DataFrame(np.nan, index=days, columns=cols)
+    s.iloc[:5] = [8, 7, 6, 5, 4, 3, 2, 1]
+    s.iloc[5:10] = [6, 7, 8, 5, 4, 3, 2, 1]
+    s.iloc[10:] = [1, 7, 8, 5, 4, 3, 2, 6]  # A falls out of the band
+    s = s.rank(axis=1, pct=True)
+    monkeypatch.setattr(portfolio, "score_panel", lambda k: s)
+    monkeypatch.setattr(portfolio, "hold_panel", lambda k, w: s)
+    monkeypatch.setattr(portfolio, "risk_on", lambda: pd.Series(True, index=days))
+    monkeypatch.setattr(portfolio, "calendar", lambda: days)
+    spec = portfolio.Spec("t", "t", top_n=2, band_mult=2.0)
+    book = portfolio.build_book(spec, days[0], days[-1], record=True)
+    held = [set(t["held"]) for t in book.trades]
+    assert held == [{"A", "B"}, {"A", "B"}, {"B", "C"}]
+
+
+def test_stacked_runs_and_handover():
+    holdings = [["A", "B"], ["A", "C"], ["A", "C"], ["D", "C"]]
+    runs = stacked.build_runs(holdings)
+    assert {(r.stock, r.a, r.b) for r in runs} == {("A", 0, 2), ("B", 0, 0), ("C", 1, 3), ("D", 3, 3)}
+    layer = stacked.assign_handover(runs, len(holdings))
+    lay = {r.stock: layer[k] for k, r in enumerate(runs)}
+    assert lay["C"] == lay["B"] and lay["D"] == lay["A"]
+
+
+def test_twse_roc_dates_and_etf_total_return(monkeypatch):
+    from twrank import twse
+
+    assert twse._roc(" 95/01/02") == pd.Timestamp("2006-01-02")
+    assert twse._roc("94年05月19日") == pd.Timestamp("2005-05-19")
+    idx = pd.bdate_range("2025-06-02", periods=6)
+    close = pd.Series([100.0, 101.0, 98.0, 25.0, 25.5, 26.0], index=idx)  # div on day 2, 4:1 split day 3
+    div = pd.DataFrame({"prev_close": [101.0], "ref": [97.0]}, index=[idx[2]])
+    monkeypatch.setattr(twse, "etf_close", lambda s="0050": close)
+    monkeypatch.setattr(twse, "dividends", lambda s="0050": div)
+    tr = twse.etf_total_return()
+    r = tr.pct_change().dropna()
+    assert r.iloc[1] == pytest.approx(98 / 97 - 1)  # ex-dividend day measured from the reference
+    assert r.iloc[2] == pytest.approx(25 * 4 / 98 - 1)  # split removed

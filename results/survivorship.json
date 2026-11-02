@@ -1,0 +1,131 @@
+{
+ "per_year": [
+  {
+   "year": 2006,
+   "delisted": 14,
+   "listed_in_data": 601,
+   "rate": 0.0228
+  },
+  {
+   "year": 2007,
+   "delisted": 20,
+   "listed_in_data": 688,
+   "rate": 0.0282
+  },
+  {
+   "year": 2008,
+   "delisted": 12,
+   "listed_in_data": 716,
+   "rate": 0.0165
+  },
+  {
+   "year": 2009,
+   "delisted": 3,
+   "listed_in_data": 726,
+   "rate": 0.0041
+  },
+  {
+   "year": 2010,
+   "delisted": 12,
+   "listed_in_data": 721,
+   "rate": 0.0164
+  },
+  {
+   "year": 2011,
+   "delisted": 8,
+   "listed_in_data": 753,
+   "rate": 0.0105
+  },
+  {
+   "year": 2012,
+   "delisted": 4,
+   "listed_in_data": 770,
+   "rate": 0.0052
+  },
+  {
+   "year": 2013,
+   "delisted": 5,
+   "listed_in_data": 837,
+   "rate": 0.0059
+  },
+  {
+   "year": 2014,
+   "delisted": 5,
+   "listed_in_data": 862,
+   "rate": 0.0058
+  },
+  {
+   "year": 2015,
+   "delisted": 4,
+   "listed_in_data": 886,
+   "rate": 0.0045
+  },
+  {
+   "year": 2016,
+   "delisted": 7,
+   "listed_in_data": 903,
+   "rate": 0.0077
+  },
+  {
+   "year": 2017,
+   "delisted": 7,
+   "listed_in_data": 924,
+   "rate": 0.0075
+  },
+  {
+   "year": 2018,
+   "delisted": 10,
+   "listed_in_data": 943,
+   "rate": 0.0105
+  },
+  {
+   "year": 2019,
+   "delisted": 6,
+   "listed_in_data": 952,
+   "rate": 0.0063
+  },
+  {
+   "year": 2020,
+   "delisted": 6,
+   "listed_in_data": 969,
+   "rate": 0.0062
+  },
+  {
+   "year": 2021,
+   "delisted": 8,
+   "listed_in_data": 988,
+   "rate": 0.008
+  },
+  {
+   "year": 2022,
+   "delisted": 13,
+   "listed_in_data": 1009,
+   "rate": 0.0127
+  },
+  {
+   "year": 2023,
+   "delisted": 2,
+   "listed_in_data": 1035,
+   "rate": 0.0019
+  },
+  {
+   "year": 2024,
+   "delisted": 3,
+   "listed_in_data": 1066,
+   "rate": 0.0028
+  },
+  {
+   "year": 2025,
+   "delisted": 3,
+   "listed_in_data": 1084,
+   "rate": 0.0028
+  },
+  {
+   "year": 2026,
+   "delisted": 4,
+   "listed_in_data": 1088,
+   "rate": 0.0037
+  }
+ ],
+ "mean_rate": 0.009042574906519264
+}

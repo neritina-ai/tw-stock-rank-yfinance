@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>台股排序策略 Viewer</title>
+<style>
+:root {
+  --bg: #f7f6f2; --panel: #ffffff; --ink: #1b1b19; --ink2: #5b5a55; --muted: #8b8a84;
+  --line: #e3e1da; --grid: #ecebe5; --accent: #2f6db5; --bench: #7b7a74;
+  --up: #d1453b; --down: #24935a; --score: #8a4fc7;
+  --look: rgba(47, 109, 181, 0.09); --next: rgba(230, 160, 40, 0.16);
+  --held: rgba(205, 60, 40, 0.85); --cursor: #1b1b19;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --ink2: #b4b3ac; --muted: #85847e;
+    --line: #34332f; --grid: #2a2a27; --accent: #6aa3e8; --bench: #9b9a93;
+    --up: #f0645a; --down: #3fbf7f; --score: #b98af0;
+    --look: rgba(106, 163, 232, 0.12); --next: rgba(240, 180, 60, 0.14);
+    --held: rgba(240, 100, 80, 0.9); --cursor: #ecebe6;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --ink2: #b4b3ac; --muted: #85847e;
+  --line: #34332f; --grid: #2a2a27; --accent: #6aa3e8; --bench: #9b9a93;
+  --up: #f0645a; --down: #3fbf7f; --score: #b98af0;
+  --look: rgba(106, 163, 232, 0.12); --next: rgba(240, 180, 60, 0.14);
+  --held: rgba(240, 100, 80, 0.9); --cursor: #ecebe6;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, -apple-system, "Segoe UI",
+  "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 15px; margin: 0; font-weight: 650; }
+#tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+#tabs button { border: 1px solid var(--line); background: transparent; color: var(--ink2);
+  border-radius: 6px; padding: 3px 9px; font: inherit; cursor: pointer; }
+#tabs button.on { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+#tabs button kbd { opacity: .55; font-size: 11px; margin-right: 3px; }
+.hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+.hint kbd, .k { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+  padding: 0 4px; font: 11px ui-monospace, monospace; color: var(--ink2); }
+#theme { border: 1px solid var(--line); background: transparent; color: var(--ink2); border-radius: 6px;
+  padding: 3px 8px; cursor: pointer; font: inherit; }
+main { display: grid; grid-template-columns: minmax(330px, 400px) 1fr; gap: 12px; padding: 12px 16px;
+  height: calc(100% - 52px); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+#left { display: flex; flex-direction: column; overflow: hidden; }
+#tradehead { padding: 10px 12px 8px; border-bottom: 1px solid var(--line); }
+#tradehead .date { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+#tradehead .sub { color: var(--ink2); font-size: 12px; }
+#legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--ink2); margin-top: 6px; }
+#legend i { display: inline-block; width: 46px; height: 9px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+#listwrap { overflow-y: auto; flex: 1; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+#rank th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 500;
+  font-size: 11px; text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--line); z-index: 1; }
+#rank td { padding: 2px 6px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+#rank td.l, #rank th.l { text-align: left; }
+#rank tr { cursor: pointer; }
+#rank tr.cur td { box-shadow: inset 0 2px 0 var(--cursor), inset 0 -2px 0 var(--cursor); }
+#rank tr.cur td:first-child { box-shadow: inset 2px 2px 0 var(--cursor), inset 0 -2px 0 var(--cursor); }
+#rank tr.cur td:last-child { box-shadow: inset -2px 2px 0 var(--cursor), inset 0 -2px 0 var(--cursor); }
+#rank tr.sep td { border-top: 2px dashed var(--line); }
+.tag { font-size: 10px; border-radius: 3px; padding: 0 3px; margin-left: 3px; border: 1px solid currentColor; }
+#right { display: grid; grid-template-rows: auto minmax(260px, 1fr) auto; gap: 12px; min-height: 0; min-width: 0; }
+#stockpanel { display: flex; flex-direction: column; min-height: 0; }
+#stockhead { padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline;
+  border-bottom: 1px solid var(--line); }
+#stockhead .nm { font-size: 16px; font-weight: 650; }
+#stockhead .meta { color: var(--ink2); font-size: 12px; }
+#chartbox { position: relative; flex: 1; min-height: 240px; overflow: hidden; }
+#chartbox canvas, #eqbox canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+#tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  display: none; white-space: nowrap; z-index: 3; font-variant-numeric: tabular-nums; }
+#summary { padding: 10px 12px; display: grid; grid-template-columns: minmax(250px, 330px) 1fr; gap: 12px; }
+#tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 10px; align-content: start; }
+.tile .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tile .b { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tile .t { font-size: 11px; color: var(--ink2); }
+#expnote { grid-column: 1 / -1; color: var(--ink2); font-size: 12px; }
+#eqbox { position: relative; height: 230px; min-width: 0; overflow: hidden; }
+#stages { grid-column: 1 / -1; overflow-x: auto; }
+#stages table td, #stages table th { padding: 2px 6px; text-align: right; font-size: 11.5px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+#stages table th { color: var(--muted); font-weight: 500; }
+#stages td.l, #stages th.l { text-align: left; }
+.neg { color: var(--down); } .pos { color: var(--up); }
+#loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); pointer-events: none; }
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; height: auto; padding: 12px 16px; }
+  #left { max-height: 60vh; }
+  #right { grid-template-rows: auto 380px auto; }
+  #summary { grid-template-columns: 1fr; }
+  .hint { display: none; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>台股 LightGBM 排序策略・持股變化</h1>
+  <div id="tabs" role="tablist" aria-label="實驗"></div>
+  <span class="hint"><kbd>←</kbd><kbd>→</kbd> 換股日　<kbd>↑</kbd><kbd>↓</kbd> 個股　<kbd>Home</kbd><kbd>End</kbd> 首末　<kbd>Enter</kbd> 放大　<kbd>L</kbd> 對數</span>
+  <button id="theme" title="切換深淺色">◐</button>
+</header>
+<main>
+  <section id="left" class="panel">
+    <div id="tradehead">
+      <div class="date" id="tdate">—</div>
+      <div class="sub" id="tsub"></div>
+      <div id="legend"></div>
+    </div>
+    <div id="listwrap">
+      <table id="rank">
+        <thead><tr><th>#</th><th class="l">代號</th><th class="l">名稱</th><th>分數</th><th>權重</th><th class="l">狀態</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+  <section id="right">
+    <div id="stockpanel" class="panel" style="grid-row: 1 / 3">
+      <div id="stockhead"></div>
+      <div id="chartbox"><canvas id="chart" aria-label="個股還原股價 K 線與分數"></canvas>
+        <div id="tip"></div><div id="loading"></div></div>
+    </div>
+    <div id="summary" class="panel">
+      <div id="tiles"></div>
+      <div id="eqbox"><canvas id="eq" aria-label="權益曲線與回檔，和 0050 含息比較"></canvas><div id="tip2" class="tip"></div></div>
+      <div id="expnote"></div>
+      <div id="stages"></div>
+    </div>
+  </section>
+</main>
+<script>
+"use strict";
+(() => {
+const DATA = "data/";
+const DAY = 86400000;
+const $ = (id) => document.getElementById(id);
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const S = { meta: null, days: null, exps: {}, exp: null, ti: 0, si: 0, sid: null, zoom: false,
+  log: true, px: {}, hover: null, eqHover: null };
+
+// ---------- theme ----------
+const THEME_KEY = "twrank-theme";
+function applyTheme(t) {
+  if (t) document.documentElement.setAttribute("data-theme", t);
+  else document.documentElement.removeAttribute("data-theme");
+}
+try { applyTheme(localStorage.getItem(THEME_KEY)); } catch (e) {}
+$("theme").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = document.documentElement.getAttribute("data-theme") || (dark ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  applyTheme(next);
+  try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+  drawAll();
+};
+
+// ---------- formatting ----------
+const fmtD = (i) => { const d = new Date(S.days[i]); return d.toISOString().slice(0, 10); };
+const pct = (v, d = 1) => v == null ? "—" : (v * 100).toFixed(d) + "%";
+const spct = (v, d = 1) => v == null ? "—" : (v >= 0 ? "+" : "") + (v * 100).toFixed(d) + "%";
+const num = (v, d = 2) => v == null ? "—" : v.toFixed(d);
+function dur(days) {
+  if (days < 7) return days + " 天";
+  if (days < 70) return Math.round(days / 7) + " 週";
+  if (days < 730) return Math.round(days / 30.4) + " 個月";
+  return (days / 365.25).toFixed(1) + " 年";
+}
+
+// ---------- colours for the ranking list ----------
+// held: yellow (just added) -> red (held a long time); dropped: deep green -> faint
+const HELD = [[0, [247, 205, 70]], [60, [244, 160, 60]], [180, [229, 103, 63]], [365, [200, 50, 45]], [900, [150, 25, 35]]];
+function ramp(stops, x) {
+  if (x <= stops[0][0]) return stops[0][1];
+  for (let i = 1; i < stops.length; i++) {
+    if (x <= stops[i][0]) {
+      const [a, ca] = stops[i - 1], [b, cb] = stops[i], f = (x - a) / (b - a);
+      return ca.map((c, k) => Math.round(c + (cb[k] - c) * f));
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+const DROP_FADE = 365;
+function rowStyle(st) {
+  if (st.held) {
+    const c = ramp(HELD, st.heldDays);
+    const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+    return `background: rgb(${c}); color: ${lum > 0.55 ? "#1b1b19" : "#fff"}`;
+  }
+  if (st.droppedDays != null && st.droppedDays <= DROP_FADE) {
+    const a = 0.85 * Math.pow(1 - st.droppedDays / DROP_FADE, 1.3) + 0.06;
+    return `background: rgba(26, 140, 75, ${a.toFixed(3)}); color: ${a > 0.5 ? "#fff" : "inherit"}`;
+  }
+  return "";
+}
+
+// ---------- data loading ----------
+async function getJSON(p) {
+  const r = await fetch(DATA + p);
+  if (!r.ok) throw new Error(p + " " + r.status);
+  return r.json();
+}
+async function loadExp(id) {
+  if (!S.exps[id]) S.exps[id] = await getJSON("exp/" + id + ".json");
+  return S.exps[id];
+}
+function loadPx(sid) {
+  if (S.px[sid]) return S.px[sid];
+  S.px[sid] = (async () => {
+    const r = await fetch(DATA + "px/" + sid + ".bin");
+    if (!r.ok) throw new Error("px " + sid);
+    const ds = new DecompressionStream("deflate");
+    const buf = await new Response(r.body.pipeThrough(ds)).arrayBuffer();
+    const n = S.days.length;
+    const i16 = new Int16Array(buf, 0, 4 * n);
+    const u8 = new Uint8Array(buf, 8 * n, 3 * n);
+    const C = new Float64Array(n), O = new Float64Array(n), H = new Float64Array(n), L = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const c = i16[i];
+      if (c === -32768) { C[i] = O[i] = H[i] = L[i] = NaN; continue; }
+      C[i] = Math.exp(c * 0.001);
+      O[i] = Math.exp((c + i16[n + i]) * 0.001);
+      H[i] = Math.exp((c + i16[2 * n + i]) * 0.001);
+      L[i] = Math.exp((c + i16[3 * n + i]) * 0.001);
+    }
+    const sc = {};
+    ["ens", "s21", "s63"].forEach((k, j) => {
+      const a = new Float32Array(n);
+      for (let i = 0; i < n; i++) { const v = u8[j * n + i]; a[i] = v === 255 ? NaN : v / 2; }
+      sc[k] = a;
+    });
+    return { C, O, H, L, sc };
+  })();
+  return S.px[sid];
+}
+
+// ---------- state helpers ----------
+const trade = () => S.exp.trades[S.ti];
+function rowsOf(t) {
+  return t.r.map((r, k) => ({ sid: r[0], p: r[1], w: r[2], hs: r[3], da: r[4], k }));
+}
+function statusOf(row, t) {
+  const day = S.days[t.d];
+  const st = { held: row.hs >= 0, heldDays: 0, droppedDays: null, added: false, dropped: false };
+  if (st.held) {
+    const t0 = S.exp.trades[row.hs];
+    st.heldDays = Math.round((day - S.days[t0.d]) / DAY);
+    st.added = row.hs === S.ti;
+  } else if (row.da >= 0) {
+    st.droppedDays = Math.round((day - S.days[S.exp.trades[row.da].d]) / DAY);
+    st.dropped = row.da === S.ti;
+  }
+  return st;
+}
+function nextTradeDay(ti) {
+  const t = S.exp.trades[ti + 1];
+  return t ? t.d : S.days.length - 1;
+}
+function heldRuns(sid) {
+  // [start day index, end day index) of every stretch this experiment held sid
+  const runs = []; let a = null;
+  S.exp.trades.forEach((t, i) => {
+    const h = t.r.some((r) => r[0] === sid && r[3] >= 0);
+    if (h && a == null) a = t.d;
+    if (!h && a != null) { runs.push([a, t.d]); a = null; }
+  });
+  if (a != null) runs.push([a, S.days.length - 1]);
+  return runs;
+}
+
+// ---------- rendering: list ----------
+function renderTradeHead() {
+  const t = trade();
+  $("tdate").textContent = fmtD(t.d);
+  const held = t.r.filter((r) => r[3] >= 0).length;
+  const added = t.r.filter((r) => r[3] === S.ti).length;
+  const dropped = t.r.filter((r) => r[4] === S.ti).length;
+  $("tsub").innerHTML = `第 ${S.ti + 1} / ${S.exp.trades.length} 次換股・候選 ${t.n} 檔・持股 ${held} 檔` +
+    `（新進 ${added}、汰除 ${dropped}）・總曝險 <b>${Math.round(t.x * 100)}%</b>`;
+}
+function renderLegend() {
+  const g = (stops) => "linear-gradient(90deg," + stops.map(([x, c]) => `rgb(${c}) ${Math.min(100, x / 9)}%`).join(",") + ")";
+  $("legend").innerHTML =
+    `<span><i style="background:${g(HELD)}"></i>持有：剛選入 → 持有愈久愈紅</span>` +
+    `<span><i style="background:linear-gradient(90deg, rgba(26,140,75,.9), rgba(26,140,75,.06))"></i>剔除：剛剔除 → 一年後淡出</span>`;
+}
+function renderList() {
+  const t = trade();
+  const rows = rowsOf(t);
+  const tb = document.querySelector("#rank tbody");
+  let html = "";
+  rows.forEach((r, i) => {
+    const st = statusOf(r, t);
+    const name = S.meta.names[r.sid] || "";
+    let stat = "";
+    if (st.held) stat = st.added ? "新進" : "持有 " + dur(st.heldDays);
+    else if (st.droppedDays != null) stat = st.dropped ? "本次汰除" : st.droppedDays <= DROP_FADE ? "剔除 " + dur(st.droppedDays) + "前" : "曾持有";
+    const cls = [i === S.si ? "cur" : "", i === t.top ? "sep" : ""].join(" ");
+    html += `<tr data-i="${i}" class="${cls}" style="${rowStyle(st)}"><td>${i < t.top ? i + 1 : "–"}</td>` +
+      `<td class="l">${r.sid}</td><td class="l">${name}</td>` +
+      `<td>${r.p >= 0 ? (r.p / 10).toFixed(1) : "—"}</td><td>${r.w > 0 ? (r.w / 100).toFixed(2) + "%" : ""}</td>` +
+      `<td class="l">${stat}</td></tr>`;
+  });
+  tb.innerHTML = html;
+  const cur = tb.querySelector("tr.cur");
+  if (cur) cur.scrollIntoView({ block: "nearest" });
+}
+
+// ---------- rendering: canvases ----------
+function setup(cv) {
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  cv.width = Math.max(1, Math.round(r.width * dpr)); cv.height = Math.max(1, Math.round(r.height * dpr));
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { g, W: r.width, H: r.height };
+}
+function niceTicks(lo, hi, n) {
+  const span = hi - lo; if (!(span > 0)) return [lo];
+  const step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= step0) || 10 * mag;
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+function logTicks(lo, hi) {
+  const out = [], base = [1, 2, 5];
+  for (let e = Math.floor(Math.log10(lo)) - 1; e <= Math.ceil(Math.log10(hi)); e++)
+    for (const b of base) { const v = b * Math.pow(10, e); if (v >= lo && v <= hi) out.push(v); }
+  return out.length >= 3 ? out : niceTicks(lo, hi, 5);
+}
+const fmtP = (v) => v >= 1000 ? v.toFixed(0) : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+
+function viewRange() {
+  const t = trade(), lb = S.meta.lookback;
+  if (!S.zoom) return [0, S.days.length - 1];
+  const a = Math.max(0, t.d - lb), b = Math.min(S.days.length - 1, nextTradeDay(S.ti));
+  const pad = Math.max(3, Math.round((b - a) * 0.03));
+  return [Math.max(0, a - pad), Math.min(S.days.length - 1, b + pad)];
+}
+function aggregate(px, a, b, pw) {
+  const n = b - a + 1, per = n / Math.max(1, pw / 4);
+  const unit = per <= 1.6 ? "日" : per <= 6 ? "週" : per <= 24 ? "月" : "季";
+  const key = (i) => {
+    const d = new Date(S.days[i]);
+    if (unit === "日") return i;
+    if (unit === "週") return Math.floor((S.days[i] / DAY + 3) / 7);
+    if (unit === "月") return d.getUTCFullYear() * 12 + d.getUTCMonth();
+    return d.getUTCFullYear() * 4 + Math.floor(d.getUTCMonth() / 3);
+  };
+  const bars = []; let cur = null;
+  for (let i = a; i <= b; i++) {
+    if (!isFinite(px.C[i])) continue;
+    const k = key(i);
+    if (!cur || cur.k !== k) { cur = { k, a: i, b: i, O: px.O[i], H: px.H[i], L: px.L[i], C: px.C[i] }; bars.push(cur); }
+    else { cur.b = i; cur.H = Math.max(cur.H, px.H[i]); cur.L = Math.min(cur.L, px.L[i]); cur.C = px.C[i]; }
+  }
+  return { bars, unit };
+}
+
+const CH = {};
+async function renderChart() {
+  const cv = $("chart");
+  const { g, W, H } = setup(cv);
+  g.clearRect(0, 0, W, H);
+  const sid = S.sid;
+  if (!sid) return;
+  let px;
+  try {
+    $("loading").textContent = "";
+    if (!(S.px[sid] instanceof Object && S.px[sid].C)) {
+      $("loading").textContent = "載入 " + sid + "…";
+      S.px[sid] = await loadPx(sid);
+      if (S.sid !== sid) return;
+      $("loading").textContent = "";
+      return renderChart();
+    }
+    px = S.px[sid];
+  } catch (e) { $("loading").textContent = "沒有 " + sid + " 的股價資料"; return; }
+  const P = { l: 8, r: 96, t: 10, b: 24 }, pw = W - P.l - P.r, ph = H - P.t - P.b;
+  const [a, b] = viewRange();
+  const { bars, unit } = aggregate(px, a, b, pw);
+  let lo = Infinity, hi = -Infinity;
+  for (const k of bars) { lo = Math.min(lo, k.L); hi = Math.max(hi, k.H); }
+  if (!isFinite(lo)) { $("loading").textContent = "這段期間沒有股價"; return; }
+  const useLog = S.log && lo > 0;
+  const fy = useLog ? Math.log : (v) => v;
+  let ya = fy(lo), yb = fy(hi); const padv = (yb - ya) * 0.06 || 1; ya -= padv; yb += padv;
+  const X = (i) => P.l + ((i - a + 0.5) / (b - a + 1)) * pw;
+  const Y = (v) => P.t + (1 - (fy(v) - ya) / (yb - ya)) * ph;
+  const smin = S.exp.smin, smax = S.exp.smax;
+  const YS = (v) => P.t + (1 - (v - smin) / (smax - smin || 1)) * ph;
+  Object.assign(CH, { a, b, X, Y, P, pw, ph, bars, px, W, H });
+
+  // shaded ranges: lookback used by this ranking, and the holding interval until the next trade
+  const t = trade();
+  const la = Math.max(0, t.d - S.meta.lookback), nb = nextTradeDay(S.ti);
+  g.fillStyle = css("--look"); g.fillRect(X(la) , P.t, X(t.d) - X(la), ph);
+  g.fillStyle = css("--next"); g.fillRect(X(t.d), P.t, Math.max(1, X(nb) - X(t.d)), ph);
+
+  // grid + price axis (right, inner)
+  g.font = "11px system-ui, sans-serif"; g.textBaseline = "middle";
+  const ticks = useLog ? logTicks(Math.exp(ya), Math.exp(yb)) : niceTicks(ya, yb, 5);
+  g.strokeStyle = css("--grid"); g.lineWidth = 1; g.fillStyle = css("--muted"); g.textAlign = "left";
+  for (const v of ticks) {
+    const y = Math.round(Y(v)) + 0.5; if (y < P.t || y > P.t + ph) continue;
+    g.beginPath(); g.moveTo(P.l, y); g.lineTo(P.l + pw, y); g.stroke();
+    g.fillText(fmtP(v), P.l + pw + 6, y);
+  }
+  // time axis
+  g.textAlign = "center"; g.textBaseline = "top";
+  const yrs = []; let last = -1;
+  for (let i = a; i <= b; i++) { const y = new Date(S.days[i]).getUTCFullYear(); if (y !== last) { yrs.push([i, y]); last = y; } }
+  const span = b - a;
+  if (span > 400) {
+    const step = Math.ceil(yrs.length / Math.max(2, pw / 60));
+    yrs.forEach(([i, y], k) => { if (k % step === 0 && i > a) { g.fillText(String(y), X(i), P.t + ph + 6); } });
+  } else {
+    let lm = -1;
+    for (let i = a; i <= b; i++) {
+      const d = new Date(S.days[i]), m = d.getUTCMonth();
+      if (m !== lm && i > a) { const lab = m === 0 ? String(d.getUTCFullYear()) : (m + 1) + "月"; if (span < 140 || m % 2 === 0) g.fillText(lab, X(i), P.t + ph + 6); }
+      lm = m;
+    }
+  }
+
+  // holding bands along the bottom of the plot
+  g.fillStyle = css("--held");
+  for (const [ra, rb] of heldRuns(sid)) {
+    if (rb < a || ra > b) continue;
+    const x0 = X(Math.max(a, ra)), x1 = X(Math.min(b, rb));
+    g.fillRect(x0, P.t + ph - 4, Math.max(1, x1 - x0), 4);
+  }
+
+  // candles (Taiwan convention: red up, green down)
+  const bw = Math.max(1, Math.min(14, (pw / (b - a + 1)) * ((bars[0]?.b - bars[0]?.a + 1) || 1) * 0.7));
+  const up = css("--up"), dn = css("--down");
+  for (const k of bars) {
+    const x = (X(k.a) + X(k.b)) / 2, c = k.C >= k.O ? up : dn;
+    g.strokeStyle = c; g.fillStyle = c; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(Math.round(x) + 0.5, Y(k.H)); g.lineTo(Math.round(x) + 0.5, Y(k.L)); g.stroke();
+    const y0 = Y(Math.max(k.O, k.C)), y1 = Y(Math.min(k.O, k.C));
+    g.fillRect(x - bw / 2, y0, bw, Math.max(1, y1 - y0));
+  }
+
+  // score line at every trade day (second y axis, fixed for the experiment)
+  const sc = px.sc[S.exp.score] || px.sc.ens;
+  const dense = !S.zoom && S.exp.trades.filter((tr) => tr.d >= a && tr.d <= b).length > 150;
+  g.strokeStyle = css("--score"); g.lineWidth = dense ? 0.9 : 1.6; g.globalAlpha = dense ? 0.55 : 1; g.beginPath();
+  let pen = false; const pts = [];
+  S.exp.trades.forEach((tr) => {
+    if (tr.d < a || tr.d > b) { pen = false; return; }
+    const v = sc[tr.d];
+    if (!isFinite(v)) { pen = false; return; }
+    const x = X(tr.d), y = YS(v); pts.push([x, y, tr.d === t.d]);
+    if (pen) g.lineTo(x, y); else g.moveTo(x, y); pen = true;
+  });
+  g.stroke(); g.globalAlpha = 1;
+  if (S.zoom || pts.length < 120) {
+    g.fillStyle = css("--score");
+    for (const [x, y] of pts) { g.beginPath(); g.arc(x, y, 2.2, 0, 7); g.fill(); }
+  }
+  for (const [x, y, cur] of pts) if (cur) { g.fillStyle = css("--panel"); g.strokeStyle = css("--score"); g.lineWidth = 2; g.beginPath(); g.arc(x, y, 4.5, 0, 7); g.fill(); g.stroke(); }
+  // score axis (outer right)
+  g.textAlign = "left"; g.textBaseline = "middle"; g.fillStyle = css("--score");
+  for (const v of niceTicks(smin, smax, 4)) {
+    const y = YS(v); if (y < P.t - 1 || y > P.t + ph + 1) continue;
+    g.fillText(v.toFixed(0), P.l + pw + 52, y);
+  }
+  g.save(); g.translate(W - 6, P.t + ph / 2); g.rotate(-Math.PI / 2); g.textAlign = "center"; g.textBaseline = "bottom";
+  g.fillText("分數（排名百分位）", 0, 0); g.restore();
+  // current trade marker
+  g.strokeStyle = css("--ink2"); g.setLineDash([3, 3]); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(Math.round(X(t.d)) + 0.5, P.t); g.lineTo(Math.round(X(t.d)) + 0.5, P.t + ph); g.stroke(); g.setLineDash([]);
+  g.fillStyle = css("--muted"); g.textAlign = "left"; g.textBaseline = "top";
+  g.fillText(`${unit}K・${useLog ? "對數" : "線性"}・${S.zoom ? "放大：回推起點 → 下次換股" : "全範圍"}`, P.l + 4, P.t + 2);
+  drawCross(g);
+}
+function drawCross(g) {
+  const h = S.hover; if (!h || !CH.X) return;
+  g.strokeStyle = css("--muted"); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(Math.round(h.x) + 0.5, CH.P.t); g.lineTo(Math.round(h.x) + 0.5, CH.P.t + CH.ph); g.stroke();
+}
+
+function renderStockHead() {
+  const t = trade(), rows = rowsOf(t), r = rows[S.si];
+  if (!r) { $("stockhead").innerHTML = ""; return; }
+  const st = statusOf(r, t);
+  const name = S.meta.names[r.sid] || "";
+  const stat = st.held ? (st.added ? "本次新進" : "已連續持有 " + dur(st.heldDays)) :
+    st.droppedDays != null ? (st.dropped ? "本次汰除" : "剔除於 " + dur(st.droppedDays) + "前") : "未持有";
+  $("stockhead").innerHTML = `<span class="nm">${r.sid} ${name}</span>` +
+    `<span class="meta">第 ${S.si < t.top ? S.si + 1 : "–"} 名・分數 ${r.p >= 0 ? (r.p / 10).toFixed(1) : "—"}・權重 ${(r.w / 100).toFixed(2)}%・${stat}</span>` +
+    `<span class="meta" style="margin-left:auto"><span style="display:inline-block;width:12px;height:9px;background:var(--look);border:1px solid var(--line)"></span> 回推 ${S.meta.lookback} 個交易日　` +
+    `<span style="display:inline-block;width:12px;height:9px;background:var(--next);border:1px solid var(--line)"></span> 到下次換股　` +
+    `<span style="color:var(--score)">● 分數</span>　<span style="color:var(--held)">▬ 持有期間</span></span>`;
+}
+
+// ---------- summary: tiles, equity + drawdown, stage table ----------
+function renderSummary() {
+  const m = S.exp.metrics.full, s = m.strategy, b = m["0050"];
+  const tile = (t, v, bv) => `<div class="tile"><div class="t">${t}</div><div class="v">${v}</div><div class="b">0050 ${bv}</div></div>`;
+  $("tiles").innerHTML =
+    tile("年化報酬", spct(s.cagr), spct(b.cagr)) + tile("Sharpe", num(s.sharpe), num(b.sharpe)) +
+    tile("最大回檔", pct(s.mdd), pct(b.mdd)) + tile("年化波動", pct(s.vol), pct(b.vol)) +
+    tile("年週轉（買＋賣）", num(s.turnover, 1) + "×", "—") + tile("年成本", pct(s.cost, 2), "—") +
+    `<div class="tile" style="grid-column:1/-1"><div class="b">${s.years.toFixed(1)} 年・平均持股 ${num(s.positions, 1)} 檔・平均曝險 ${pct(s.exposure, 0)}・加權報酬指數（含息）同期年化 ${spct(m.TR.cagr)}</div></div>`;
+  $("expnote").innerHTML = `<b>${S.exp.label}</b>：${S.exp.note}`;
+  const st = S.exp.metrics.stages;
+  let h = `<table><thead><tr><th class="l">段</th><th class="l">期間</th><th>年化</th><th>Sharpe</th><th>最大回檔</th><th>週轉</th><th>0050 年化</th><th>0050 Sharpe</th><th>0050 回檔</th><th>加權報酬指數年化</th></tr></thead><tbody>`;
+  for (const x of st) {
+    const a = x.strategy, c = x["0050"], ti = x.TR;
+    h += `<tr><td class="l">${x.stage}</td><td class="l">${x.start.slice(0, 7)} ～ ${x.end.slice(0, 7)}</td><td>${spct(a.cagr)}</td><td>${num(a.sharpe)}</td><td>${pct(a.mdd)}</td><td>${num(a.turnover, 1)}</td>` +
+      `<td>${spct(c.cagr)}</td><td>${num(c.sharpe)}</td><td>${pct(c.mdd)}</td><td>${spct(ti.cagr)}</td></tr>`;
+  }
+  $("stages").innerHTML = h + "</tbody></table>";
+  renderEq();
+}
+const EQ = {};
+function renderEq() {
+  const cv = $("eq"); const { g, W, H } = setup(cv); g.clearRect(0, 0, W, H);
+  const c = S.exp.curve, n = c.nav.length, d0 = c.d0;
+  const P = { l: 6, r: 46, t: 8, b: 18 }, gap = 10;
+  const h1 = (H - P.t - P.b - gap) * 0.66, h2 = H - P.t - P.b - gap - h1, pw = W - P.l - P.r;
+  const dd = (arr) => { let m = -Infinity; return arr.map((v) => { m = Math.max(m, v); return v / m - 1; }); };
+  const sdd = dd(c.nav), bdd = dd(c.bench);
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < n; i++) { lo = Math.min(lo, c.nav[i], c.bench[i]); hi = Math.max(hi, c.nav[i], c.bench[i]); }
+  const la = Math.log(lo) - 0.05, lb = Math.log(hi) + 0.05;
+  const X = (i) => P.l + (i / (n - 1)) * pw;
+  const Y = (v) => P.t + (1 - (Math.log(v) - la) / (lb - la)) * h1;
+  const ddMin = Math.min(...sdd, ...bdd);
+  const Y2 = (v) => P.t + h1 + gap + (v / ddMin) * h2;
+  Object.assign(EQ, { X, n, d0, P, pw, W, H });
+  g.font = "10.5px system-ui, sans-serif"; g.fillStyle = css("--muted"); g.strokeStyle = css("--grid"); g.lineWidth = 1;
+  g.textAlign = "left"; g.textBaseline = "middle";
+  for (const v of logTicks(Math.exp(la), Math.exp(lb))) { const y = Math.round(Y(v)) + 0.5; g.beginPath(); g.moveTo(P.l, y); g.lineTo(P.l + pw, y); g.stroke(); g.fillText(v + "×", P.l + pw + 4, y); }
+  for (const v of niceTicks(ddMin, 0, 3)) { const y = Math.round(Y2(v)) + 0.5; g.beginPath(); g.moveTo(P.l, y); g.lineTo(P.l + pw, y); g.stroke(); g.fillText((v * 100).toFixed(0) + "%", P.l + pw + 4, y); }
+  // years
+  g.textAlign = "center"; g.textBaseline = "top"; let ly = -1;
+  for (let i = 0; i < n; i++) { const y = new Date(S.days[d0 + i]).getUTCFullYear(); if (y !== ly && i > 0 && y % 2 === 0) g.fillText(String(y), X(i), H - P.b + 4); ly = y; }
+  const line = (arr, f, col, dash, w) => { g.strokeStyle = col; g.lineWidth = w; g.setLineDash(dash); g.beginPath(); arr.forEach((v, i) => i ? g.lineTo(X(i), f(v)) : g.moveTo(X(i), f(v))); g.stroke(); g.setLineDash([]); };
+  line(c.bench, Y, css("--bench"), [], 1.4);
+  line(c.nav, Y, css("--accent"), [], 1.8);
+  line(bdd, Y2, css("--bench"), [4, 3], 1.2);
+  line(sdd, Y2, css("--accent"), [], 1.4);
+  // current trade marker
+  const ti = trade().d - d0;
+  if (ti >= 0 && ti < n) { g.strokeStyle = css("--ink2"); g.setLineDash([3, 3]); g.beginPath(); g.moveTo(X(ti), P.t); g.lineTo(X(ti), H - P.b); g.stroke(); g.setLineDash([]); }
+  // legend
+  g.textAlign = "left"; g.textBaseline = "top"; g.font = "11px system-ui, sans-serif";
+  g.fillStyle = css("--accent"); g.fillRect(P.l + 6, P.t + 5, 14, 2.5); g.fillStyle = css("--ink2"); g.fillText(S.exp.label + "（扣成本）", P.l + 24, P.t);
+  g.fillStyle = css("--bench"); g.fillRect(P.l + 6, P.t + 21, 14, 2); g.fillStyle = css("--ink2"); g.fillText("0050 含息", P.l + 24, P.t + 16);
+  g.fillText("回檔（0050 虛線）", P.l + 6, P.t + h1 + gap + 2);
+  const hv = S.eqHover;
+  if (hv != null && hv >= 0 && hv < n) {
+    g.strokeStyle = css("--muted"); g.beginPath(); g.moveTo(X(hv) + 0.5, P.t); g.lineTo(X(hv) + 0.5, H - P.b); g.stroke();
+    const tx = `${fmtD(d0 + hv)}  策略 ${c.nav[hv].toFixed(2)}×（${pct(sdd[hv])}）  0050 ${c.bench[hv].toFixed(2)}×（${pct(bdd[hv])}）`;
+    g.font = "11px system-ui, sans-serif"; const tw = g.measureText(tx).width;
+    const x = Math.min(Math.max(P.l, X(hv) - tw / 2), P.l + pw - tw);
+    g.fillStyle = css("--panel"); g.fillRect(x - 4, P.t + h1 - 18, tw + 8, 16); g.fillStyle = css("--ink"); g.fillText(tx, x, P.t + h1 - 16);
+  }
+}
+
+// ---------- interaction ----------
+function drawAll() { renderTradeHead(); renderList(); renderStockHead(); renderChart(); renderSummary(); }
+function selectRow(i) {
+  const rows = rowsOf(trade());
+  S.si = Math.max(0, Math.min(rows.length - 1, i));
+  S.sid = rows[S.si]?.sid || null;
+  renderList(); renderStockHead(); renderChart(); writeHash();
+}
+function setTrade(ti) {
+  ti = Math.max(0, Math.min(S.exp.trades.length - 1, ti));
+  S.ti = ti;
+  const rows = rowsOf(trade());
+  const k = rows.findIndex((r) => r.sid === S.sid);
+  if (k >= 0) S.si = k; else { S.si = Math.min(S.si, rows.length - 1); S.sid = rows[S.si]?.sid || null; }
+  renderTradeHead(); renderList(); renderStockHead(); renderChart(); renderEq(); writeHash();
+  prefetch();
+}
+function prefetch() {
+  const rows = rowsOf(trade());
+  for (const r of rows.slice(Math.max(0, S.si - 2), S.si + 3)) loadPx(r.sid).catch(() => {});
+}
+function tradeAtDay(d) {
+  const T = S.exp.trades; let lo = 0, hi = T.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (T[m].d <= d) lo = m; else hi = m - 1; }
+  return lo;
+}
+async function setExperiment(id) {
+  const keepDay = S.exp ? trade().d : null;
+  S.exp = await loadExp(id);
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.id === id));
+  S.ti = keepDay == null ? S.exp.trades.length - 1 : tradeAtDay(keepDay);
+  const rows = rowsOf(trade());
+  const k = S.sid ? rows.findIndex((r) => r.sid === S.sid) : -1;
+  S.si = k >= 0 ? k : 0; S.sid = rows[S.si]?.sid || null;
+  drawAll(); writeHash();
+}
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.tagName === "INPUT") return;
+  const k = ev.key;
+  if (k === "ArrowRight") setTrade(S.ti + 1);
+  else if (k === "ArrowLeft") setTrade(S.ti - 1);
+  else if (k === "ArrowDown") selectRow(S.si + 1);
+  else if (k === "ArrowUp") selectRow(S.si - 1);
+  else if (k === "Home") setTrade(0);
+  else if (k === "End") setTrade(S.exp.trades.length - 1);
+  else if (k === "PageDown") setTrade(S.ti + 10);
+  else if (k === "PageUp") setTrade(S.ti - 10);
+  else if (k === "Enter") { S.zoom = !S.zoom; renderChart(); writeHash(); }
+  else if (k === "l" || k === "L") { S.log = !S.log; renderChart(); }
+  else if (/^[1-9]$/.test(k)) { const e = S.meta.exps[+k - 1]; if (e) setExperiment(e.id); }
+  else return;
+  ev.preventDefault();
+});
+document.querySelector("#rank tbody").addEventListener("click", (ev) => {
+  const tr = ev.target.closest("tr"); if (tr) selectRow(+tr.dataset.i);
+});
+$("chart").addEventListener("mousemove", (ev) => {
+  if (!CH.X) return;
+  const r = ev.currentTarget.getBoundingClientRect(), x = ev.clientX - r.left;
+  const i = Math.round(CH.a + ((x - CH.P.l) / CH.pw) * (CH.b - CH.a + 1) - 0.5);
+  if (i < CH.a || i > CH.b) { $("tip").style.display = "none"; S.hover = null; renderChart(); return; }
+  const bar = CH.bars.find((k) => i >= k.a && i <= k.b) || null;
+  S.hover = { x: CH.X(i) }; renderChart();
+  const tip = $("tip");
+  if (!bar) { tip.style.display = "none"; return; }
+  const sc = (CH.px.sc[S.exp.score] || CH.px.sc.ens)[bar.b];
+  tip.innerHTML = `${fmtD(bar.a)}${bar.b > bar.a ? " ～ " + fmtD(bar.b) : ""}<br>開 ${fmtP(bar.O)}　高 ${fmtP(bar.H)}　低 ${fmtP(bar.L)}　收 ${fmtP(bar.C)}` +
+    (isFinite(sc) ? `<br><span style="color:var(--score)">當日分數 ${sc.toFixed(1)}</span>` : "");
+  tip.style.display = "block";
+  const tw = tip.offsetWidth;
+  tip.style.left = Math.min(x + 14, r.width - tw - 6) + "px"; tip.style.top = "12px";
+});
+$("chart").addEventListener("mouseleave", () => { $("tip").style.display = "none"; S.hover = null; renderChart(); });
+$("eq").addEventListener("mousemove", (ev) => {
+  if (!EQ.X) return;
+  const r = ev.currentTarget.getBoundingClientRect();
+  S.eqHover = Math.round(((ev.clientX - r.left - EQ.P.l) / EQ.pw) * (EQ.n - 1));
+  renderEq();
+});
+$("eq").addEventListener("mouseleave", () => { S.eqHover = null; renderEq(); });
+$("eq").addEventListener("click", (ev) => {
+  const r = ev.currentTarget.getBoundingClientRect();
+  const i = Math.round(((ev.clientX - r.left - EQ.P.l) / EQ.pw) * (EQ.n - 1));
+  setTrade(tradeAtDay(EQ.d0 + Math.max(0, i)));
+});
+window.addEventListener("resize", () => { renderChart(); renderEq(); });
+
+function writeHash() {
+  const h = `exp=${S.exp.id}&d=${fmtD(trade().d)}&s=${S.sid || ""}${S.zoom ? "&z=1" : ""}`;
+  history.replaceState(null, "", "#" + h);
+}
+function readHash() {
+  const q = new URLSearchParams(location.hash.slice(1));
+  return { exp: q.get("exp"), d: q.get("d"), s: q.get("s"), z: q.get("z") === "1" };
+}
+
+async function boot() {
+  S.meta = await getJSON("meta.json");
+  const days = [Date.parse(S.meta.d0 + "T00:00:00Z")];
+  for (const d of S.meta.dd) days.push(days[days.length - 1] + d * DAY);
+  S.days = days;
+  $("tabs").innerHTML = S.meta.exps.map((e, i) => `<button data-id="${e.id}" title="${e.note}">${i < 9 ? `<kbd>${i + 1}</kbd>` : ""}${e.label}</button>`).join("");
+  $("tabs").addEventListener("click", (ev) => { const b = ev.target.closest("button"); if (b) setExperiment(b.dataset.id); });
+  renderLegend();
+  const h = readHash();
+  const id = S.meta.exps.some((e) => e.id === h.exp) ? h.exp : S.meta.exps[0].id;
+  S.exp = await loadExp(id);
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.id === id));
+  S.ti = S.exp.trades.length - 1;
+  if (h.d) { const ms = Date.parse(h.d + "T00:00:00Z"); const di = S.days.findIndex((x) => x >= ms); if (di >= 0) S.ti = tradeAtDay(di); }
+  const rows = rowsOf(trade());
+  const k = h.s ? rows.findIndex((r) => r.sid === h.s) : -1;
+  S.si = k >= 0 ? k : 0; S.sid = rows[S.si]?.sid || null; S.zoom = h.z;
+  drawAll(); writeHash(); prefetch();
+}
+boot().catch((e) => { document.body.insertAdjacentHTML("beforeend", `<p style="padding:16px;color:var(--up)">載入失敗：${e.message}</p>`); });
+})();
+</script>
+</body>
+</html>
