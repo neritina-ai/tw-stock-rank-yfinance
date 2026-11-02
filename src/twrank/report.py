@@ -214,5 +214,5 @@ def build(ids: list[str] | None = None, log=print) -> None:
     parts += ["## 倖存者偏誤", "", text, ""]
     (RESULTS_DIR / "survivorship.json").write_text(json.dumps(surv, indent=1), encoding="utf-8")
     (RESULTS_DIR / "report.md").write_text("\n".join(parts), encoding="utf-8")
-    equity_png(ids, RESULTS_DIR / "equity.png")
+    equity_png([i for i in ("base", "w20", "m11n20", "nohalf") if i in ids], RESULTS_DIR / "equity.png")
     log(f"wrote {RESULTS_DIR / 'report.md'} and equity.png")

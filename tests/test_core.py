@@ -143,3 +143,21 @@ def test_twse_roc_dates_and_etf_total_return(monkeypatch):
     r = tr.pct_change().dropna()
     assert r.iloc[1] == pytest.approx(98 / 97 - 1)  # ex-dividend day measured from the reference
     assert r.iloc[2] == pytest.approx(25 * 4 / 98 - 1)  # split removed
+
+
+def test_kendall_w_and_day_smoothing():
+    from twrank import rebalance_report as RR
+
+    idx = pd.bdate_range("2006-01-02", "2025-12-31")
+    rng = np.random.default_rng(3)
+    noise = pd.DataFrame(rng.normal(0, 0.01, (len(idx), 6)), index=idx, columns=list("abcdef"))
+    w, p = RR.kendall_w(noise, list(noise.columns))
+    assert w < 0.2 and p > 0.01
+    ranked = noise + np.arange(6) * 0.002  # the same order every year
+    w, p = RR.kendall_w(ranked, list(ranked.columns))
+    assert w > 0.9 and p < 1e-6
+    m = pd.DataFrame({20: [1.0] + [float(d) for d in range(1, 29)]}, index=range(0, 29))
+    sm = RR.smooth_days(m)
+    assert sm.loc[0, 20] == 1.0  # weekly row untouched
+    assert sm.loc[10, 20] == pytest.approx(10.0)
+    assert sm.loc[1, 20] == pytest.approx((27 + 28 + 1 + 2 + 3) / 5)  # wraps around the month

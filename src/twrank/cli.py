@@ -9,10 +9,12 @@ Commands, in pipeline order::
     train      rolling LightGBM refits -> out-of-sample scores
     run        backtest the experiments -> results/exp/<id>/
     wfv        per-stage parameter selection on training windows -> results/exp/wfv/
+    rebalance  weekly vs monthly sweeps -> results/rebalance/
+    rebalance-report  SUMMARY.md, heatmaps and tables from the sweeps
     stacked    stacked equity curve png per experiment
     viewer     export docs/viewer data
     report     results/report.md and results/equity.png
-    all        features, train, run, wfv, stacked, viewer, report
+    all        every step after fetch, in order
 """
 
 from __future__ import annotations
@@ -121,9 +123,23 @@ def _cmd_report(args) -> None:
     build(log=_log)
 
 
+def _cmd_rebalance(args) -> None:
+    from . import rebalance as R
+
+    R.run_many(R.grid_specs(), "grid", log=_log)
+    R.run_many(R.settings_specs(R.REC_SIZE), f"settings_n{R.REC_SIZE}", log=_log)
+    R.wf_choice("grid", refresh=True, log=_log)
+
+
+def _cmd_rebalance_report(args) -> None:
+    from .rebalance_report import build
+
+    build(log=_log)
+
+
 def _cmd_all(args) -> None:
-    for fn in (_cmd_features, _cmd_train, _cmd_run, _cmd_wfv, _cmd_stacked, _cmd_viewer,
-               _cmd_report):
+    for fn in (_cmd_features, _cmd_train, _cmd_run, _cmd_wfv, _cmd_rebalance,
+               _cmd_rebalance_report, _cmd_stacked, _cmd_viewer, _cmd_report):
         fn(args)
 
 
@@ -156,6 +172,10 @@ def build_parser() -> argparse.ArgumentParser:
         p.set_defaults(func=fn)
 
     sub.add_parser("wfv", help="per-stage parameter selection").set_defaults(func=_cmd_wfv)
+    sub.add_parser("rebalance", help="weekly vs monthly sweeps (about 15 minutes)").set_defaults(
+        func=_cmd_rebalance)
+    sub.add_parser("rebalance-report", help="results/rebalance/SUMMARY.md and figures").set_defaults(
+        func=_cmd_rebalance_report)
     sub.add_parser("viewer", help="export docs/viewer").set_defaults(func=_cmd_viewer)
     sub.add_parser("report", help="results/report.md").set_defaults(func=_cmd_report)
     return ap

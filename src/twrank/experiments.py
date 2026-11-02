@@ -71,7 +71,9 @@ def get(exp_id: str) -> Spec:
 
 
 def all_experiments() -> list[Spec]:
-    return list(EXPERIMENTS)
+    from .rebalance import REBALANCE_EXPERIMENTS
+
+    return EXPERIMENTS + REBALANCE_EXPERIMENTS
 
 
 def viewer_experiments() -> list[Spec]:

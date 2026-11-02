@@ -13,3 +13,6 @@ __pycache__/
 AGENTS.md
 agents/
 altar/
+
+# Large sweep return matrices (rebuild with `twrank rebalance`)
+results/rebalance/*_returns.parquet
