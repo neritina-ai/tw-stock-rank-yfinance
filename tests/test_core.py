@@ -161,3 +161,142 @@ def test_kendall_w_and_day_smoothing():
     assert sm.loc[0, 20] == 1.0  # weekly row untouched
     assert sm.loc[10, 20] == pytest.approx(10.0)
     assert sm.loc[1, 20] == pytest.approx((27 + 28 + 1 + 2 + 3) / 5)  # wraps around the month
+
+
+# ---------------------------------------------------------------------------
+# going live: lots, fees, splits, odd-lot parsing, plan helpers
+# ---------------------------------------------------------------------------
+
+
+def _fake_prices(days, raw_open, raw_close, adj_open, adj_close, factor):
+    from twrank import lots
+
+    P = lots.Prices.__new__(lots.Prices)
+    P.days = days
+    P.adj_open = adj_open
+    P.adj_close = adj_close
+    P.adj_close_ff = adj_close.ffill()
+    P.raw_open = raw_open
+    P.raw_close_ff = raw_close.ffill()
+    P.factor = factor
+    return P
+
+
+def test_order_fees_lots_odd_minimums_and_tax():
+    from twrank import lots
+
+    c = lots.Costs(discount=0.6, slip_odd=0.002)
+    sh = np.array([2350.0, 10.0, -1500.0])
+    px = np.array([50.0, 30.0, 40.0])
+    sell = sh < 0
+    fee, tax, notional, odd = lots.order_fees(sh, px, sell, "B", c)
+    # 2 lots: max(20, floor(100,000 x 0.000855)) = 85; 350 odd at 50.1: floor(17,535 x 0.000855) = 14
+    assert fee[0] == 85 + 14 and odd[0] == 350
+    assert notional[0] == pytest.approx(100_000 + 350 * 50.1)
+    assert fee[1] == 1  # odd-lot minimum
+    # sell 1 lot + 500 odd at 40 x 0.998; tax floored per order
+    assert tax[2] == np.floor(40_000 * 0.003) + np.floor(500 * 39.92 * 0.003)
+    feeA, _, _, oddA = lots.order_fees(sh[:1], px[:1], sell[:1], "A", c)
+    # scheme A: 999 + 999 + 352 shares, each its own odd-lot order
+    v = 50.1
+    assert oddA[0] == 2350
+    assert feeA[0] == 2 * np.floor(999 * v * 0.000855) + np.floor(352 * v * 0.000855)
+
+
+def test_simulate_splits_and_dividends(monkeypatch):
+    from twrank import lots
+
+    days = pd.bdate_range("2024-01-01", periods=6)
+    raw = pd.DataFrame({"A": [50.0] * 6}, index=days)  # Yahoo: back-adjusted for the split
+    k = pd.DataFrame({"A": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0]}, index=days)  # 2:1 split on day 3
+    P = _fake_prices(days, raw, raw, raw, raw, k)
+    monkeypatch.setattr(lots, "_PRICES", P)
+    monkeypatch.setattr(lots, "split_factor", lambda d: k.reindex(d))
+    orders = {days[1]: {"A": 1.0}, days[4]: {"A": 1.0}}
+    sim = lots.simulate(orders, days[0], days[-1], 10_000, "B", lots.Costs())
+    # day 1: 100 real shares at 100 (fee 14); day 4: the split made them 200 at 50,
+    # the account is worth 9,986 so the target is 199 shares
+    assert sim.orders.iloc[0]["buy"] == pytest.approx(10_000)
+    assert sim.shares == {"A": 199.0}
+    assert sim.nav.iloc[-1] == pytest.approx(10_000 - 14 - 1)  # two fees, no price change
+
+    # cash dividend: raw drops 5 on day 2, the adjusted series does not
+    raw2 = pd.DataFrame({"A": [100.0, 100.0, 95.0, 95.0, 95.0, 95.0]}, index=days)
+    adj2 = pd.DataFrame({"A": [95.0] * 6}, index=days)
+    one = pd.DataFrame({"A": [1.0] * 6}, index=days)
+    P2 = _fake_prices(days, raw2, raw2, adj2, adj2, one)
+    monkeypatch.setattr(lots, "_PRICES", P2)
+    monkeypatch.setattr(lots, "split_factor", lambda d: one.reindex(d))
+    sim2 = lots.simulate({days[1]: {"A": 1.0}, days[3]: {"A": 1.0}}, days[0], days[-1], 10_000,
+                         "frac", lots.Costs(discount=0.0))
+    o = sim2.orders.set_index("date")
+    assert o.loc[days[3], "cash_before"] == pytest.approx(500.0)  # 100 shares x 5 dividend
+    assert sim2.nav.iloc[-1] == pytest.approx(10_000)
+
+
+def test_split_factor_products(tmp_path, monkeypatch):
+    p = tmp_path / "splits.csv"
+    p.write_text("ticker,date,ratio\nX.TW,2020-01-03,1.1\nX.TW,2020-01-07,0.8\nY.TW,,\n",
+                 encoding="utf-8")
+    monkeypatch.setattr(data, "SPLITS_CSV", p)
+    days = pd.bdate_range("2020-01-01", periods=6)
+    k = data.split_factor(days)
+    assert list(k.columns) == ["X"]
+    assert k["X"].round(6).tolist() == [0.88, 0.88, 0.8, 0.8, 1.0, 1.0]
+
+
+def test_oddlot_parsing_keeps_ordinary_shares():
+    from twrank import oddlot
+
+    j = {"stat": "OK", "fields": ["證券代號", "證券名稱", "成交股數", "成交筆數", "成交金額",
+                                  "當日第一次成交價", "當日最後一次成交價", "當日最高價", "當日最低價",
+                                  "最後揭示買價", "最後揭示買量", "最後揭示賣價", "最後揭示賣量"],
+         "data": [["0050", "ETF", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1"],
+                  ["2330", "台積電", "8,095,522", "483,888", "18,369,146,800", "2,310.00",
+                   "2,265.00", "2,310.00", "2,240.00", "2,265.00", "9,497", "2,270.00", "1,124"],
+                  ["2331", "X", "0", "0", "0", "--", "--", "--", "--", "--", "0", "--", "0"]]}
+    spec = oddlot.SOURCES["twse_odd"]
+    names, rows = oddlot._pick(j, spec["must"])
+    df = oddlot._frame(names, rows, spec["map"], spec["cols"])
+    assert df["stock"].tolist() == ["2330", "2331"]
+    assert df.loc[0, "first"] == 2310.0 and df.loc[0, "value"] == 18_369_146_800
+    assert np.isnan(df.loc[1, "first"])
+
+
+def test_plan_helpers():
+    from twrank import live
+
+    assert live.order_lines("A", 2350, "B") == [("lot", 2000), ("odd", 350)]
+    assert live.order_lines("A", -2350, "A") == [("odd", 999), ("odd", 999), ("odd", 352)]
+    assert live.limit_prices(100.0) == (110.0, 90.0)
+    assert live.limit_prices(48.0) == (52.8, 43.2)  # 52.8 sits on the 0.1 tick above 50
+    assert live.limit_prices(1000.0) == (1100.0, 900.0)
+    weekly = portfolio.Spec("w", "w")
+    monthly = portfolio.Spec("m", "m", schedule="monthly", day=11)
+    fri, mon, tue = (pd.Timestamp(x) for x in ("2026-11-06", "2026-11-09", "2026-11-10"))
+    assert live.is_trade_day(weekly, fri, mon) and live.is_trade_day(weekly, fri, tue)
+    assert not live.is_trade_day(weekly, mon, tue)
+    assert live.is_trade_day(monthly, mon, tue) is False
+    assert live.is_trade_day(monthly, tue, pd.Timestamp("2026-11-11"))
+    assert live.is_trade_day(monthly, tue, pd.Timestamp("2026-11-12"))  # the 11th was closed
+    assert live.next_trade_day(monthly, pd.Timestamp("2026-11-11")) == pd.Timestamp("2026-12-11")
+
+
+def test_odd_first_reports_unpublished_market(tmp_path, monkeypatch):
+    """A market whose odd-lot file comes back empty is reported missing and not cached."""
+    from twrank import live, oddlot
+
+    monkeypatch.setattr(oddlot, "_path", lambda s, d: tmp_path / f"{s}.parquet")
+
+    def fake_fetch(dates, sources, **kw):
+        for s in sources:
+            df = (pd.DataFrame({"stock": ["2330", "1101"], "first": [100.0, 0.0]})
+                  if s == "twse_odd" else pd.DataFrame({"stock": [], "first": []}))
+            df.to_parquet(oddlot._path(s, None))
+
+    monkeypatch.setattr(oddlot, "fetch", fake_fetch)
+    first, covered, missing = live._odd_first(pd.Timestamp("2026-11-06"))
+    assert list(first.index) == ["2330"]
+    assert covered == {"2330", "1101"}
+    assert missing == ["tpex_odd"]
+    assert not (tmp_path / "tpex_odd.parquet").exists()

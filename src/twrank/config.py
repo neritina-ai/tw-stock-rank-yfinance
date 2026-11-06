@@ -28,6 +28,29 @@ SELL_COST = 0.001425 + 0.003
 # Yahoo's Taiwan daily history begins in January 2000.
 DATA_START = "2000-01-01"
 
+# Live (paper trading) data: recent bars layered on the research cache, with its
+# own panels, feature table, models and scores, so the research snapshot pinned
+# by data.lock is never touched.
+LIVE_DIR = DATA_DIR / "live"
+LIVE_PRICES_DIR = LIVE_DIR / "prices"
+LIVE_DERIVED_DIR = LIVE_DIR / "derived"
+_MODE = {"live": False}
+
+
+def use_live() -> None:
+    """Point every derived file (panels, table, scores) at ``data/live/derived``."""
+    _MODE["live"] = True
+    for d in (LIVE_PRICES_DIR, LIVE_DERIVED_DIR):
+        d.mkdir(parents=True, exist_ok=True)
+
+
+def is_live() -> bool:
+    return _MODE["live"]
+
+
+def derived_dir():
+    return LIVE_DERIVED_DIR if _MODE["live"] else DERIVED_DIR
+
 
 def ensure_dirs() -> None:
     for d in (DATA_DIR, PRICES_DIR, DERIVED_DIR, RESULTS_DIR):

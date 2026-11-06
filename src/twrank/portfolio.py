@@ -141,6 +141,24 @@ def _check_dates(spec: Spec, start, end) -> pd.DatetimeIndex:
 # ---------------------------------------------------------------------------
 
 
+def select(score_row: pd.Series, hold_row: pd.Series, held: list[str],
+           spec: Spec) -> list[str] | None:
+    """The book after one trade day: keep holdings inside the band, fill from the top.
+
+    ``score_row`` ranks today's candidates, ``hold_row`` is the smoothed score the
+    buffer uses.  Returns None when there is no score at all (no trade).
+    """
+    s = score_row.dropna().sort_values(ascending=False, kind="stable")
+    if s.empty:
+        return None
+    ks = hold_row.dropna().sort_values(ascending=False, kind="stable")
+    band_set = set(ks.index[: int(round(spec.top_n * spec.band_mult))])
+    keep = [x for x in held if x in band_set]
+    kept = set(keep)
+    adds = [x for x in s.index if x not in kept][: spec.top_n - len(keep)]
+    return keep + adds
+
+
 @dataclass
 class Book:
     """Target weights plus the per-trade-day record the viewer needs."""
@@ -160,7 +178,6 @@ def build_book(spec: Spec, start, end, held: list[str] | None = None,
     events = tdays.union(checks)
 
     held = list(held or [])
-    band = int(round(spec.top_n * spec.band_mult))
     last_scale = -1.0
     last_emit = None
     weights: dict = {}
@@ -171,15 +188,9 @@ def build_book(spec: Spec, start, end, held: list[str] | None = None,
             continue
         scale = 0.5 if (spec.regime == "half" and not on.loc[d]) else 1.0
         if d in tset:
-            s = score.loc[d].dropna().sort_values(ascending=False, kind="stable")
-            if s.empty:
+            new_held = select(score.loc[d], hold.loc[d], held, spec)
+            if new_held is None:
                 continue
-            ks = hold.loc[d].dropna().sort_values(ascending=False, kind="stable")
-            band_set = set(ks.index[:band])
-            keep = [x for x in held if x in band_set]
-            kept = set(keep)
-            adds = [x for x in s.index if x not in kept][: spec.top_n - len(keep)]
-            new_held = keep + adds
             changed = set(new_held) != set(held)
             stale = last_emit is None or (d - last_emit).days >= REFRESH_DAYS
             if changed or abs(scale - last_scale) > 1e-9 or stale:

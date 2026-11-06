@@ -22,7 +22,8 @@ import time
 import numpy as np
 import pandas as pd
 
-from .config import DERIVED_DIR, RESULTS_DIR
+from . import config
+from .config import RESULTS_DIR
 from .features import FEATURES, HORIZONS, load_table
 
 FIRST_SCORE = "2004-01-01"
@@ -42,7 +43,6 @@ LGB_PARAMS = {
     "deterministic": True,
     "verbosity": -1,
 }
-SCORES = DERIVED_DIR / "scores.parquet"
 MODEL_DIR = RESULTS_DIR / "models"
 
 
@@ -115,15 +115,19 @@ def train_all(device: str = "cpu", log=print) -> pd.DataFrame:
     for h in HORIZONS:
         out[f"s{h}"] = pred[h]
     out = out.dropna(subset=[f"s{h}" for h in HORIZONS])
-    out.to_parquet(SCORES, index=False)
+    out.to_parquet(scores_path(), index=False)
     ic = pd.DataFrame(ic_rows)
     ic.to_csv(MODEL_DIR / "ic.csv", index=False)
     fi = pd.DataFrame({f"gain{h}": imp[h] / imp[h].sum() for h in HORIZONS}, index=FEATURES)
     fi.sort_values("gain21", ascending=False).round(4).to_csv(MODEL_DIR / "importance.csv")
-    log(f"saved {SCORES} ({len(out):,} rows) in {time.time() - t0:.0f}s; "
+    log(f"saved {scores_path()} ({len(out):,} rows) in {time.time() - t0:.0f}s; "
         f"mean IC21 {ic['ic21'].mean():.4f} IC63 {ic['ic63'].mean():.4f}")
     return ic
 
 
+def scores_path():
+    return config.derived_dir() / "scores.parquet"
+
+
 def load_scores() -> pd.DataFrame:
-    return pd.read_parquet(SCORES)
+    return pd.read_parquet(scores_path())

@@ -29,11 +29,11 @@ from functools import lru_cache
 import numpy as np
 import pandas as pd
 
+from . import config
 from .config import (
     DATA_LOCK,
     DATA_MANIFEST,
     DATA_START,
-    DERIVED_DIR,
     INDEX_TICKER,
     PRICES_DIR,
     ensure_dirs,
@@ -185,6 +185,93 @@ def fetch_all(end: str | None = None, log=print) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Stock splits (Yahoo books Taiwanese stock dividends as splits)
+# ---------------------------------------------------------------------------
+
+SPLITS_CSV = PRICES_DIR.parent / "splits.csv"
+
+
+def fetch_splits(tickers: Iterable[str], batch_size: int = 20, pause: float = 2.0,
+                 log=print) -> pd.DataFrame:
+    """Split ratios per ticker (resumable; tickers already listed are skipped).
+
+    Yahoo's raw ``Close`` is back-adjusted for splits, and it records stock
+    dividends (配股) and capital reductions as splits, so an old raw price can be
+    a fraction of what actually traded (Hon Hai shows 41 in January 2005 when it
+    traded near 130).  Lot sizes need the real price: ``raw x product of the
+    ratios of every later split``.  Tickers without splits get a row with an
+    empty date so that a rerun does not ask for them again.
+    """
+    import yfinance as yf
+
+    if SPLITS_CSV.exists():
+        done = pd.read_csv(SPLITS_CSV, dtype={"ticker": str})
+    else:
+        done = pd.DataFrame(columns=["ticker", "date", "ratio"])
+    todo = [t for t in dict.fromkeys(tickers) if t not in set(done["ticker"])]
+    log(f"splits: {len(todo)} tickers to ask")
+    for i in range(0, len(todo), batch_size):
+        batch = todo[i: i + batch_size]
+        rows = []
+        for attempt in range(4):
+            try:
+                buf = io.StringIO()
+                with redirect_stdout(buf), redirect_stderr(buf):
+                    raw = yf.download(batch, start=DATA_START, auto_adjust=False, actions=True,
+                                      group_by="ticker", progress=False, threads=True, timeout=60)
+                break
+            except Exception:  # network or rate limit; back off and retry
+                raw = None
+                time.sleep(30 * (attempt + 1))
+        if raw is None or raw.empty:
+            log(f"  batch {i // batch_size + 1}: empty answer, will retry on the next run")
+            time.sleep(60)
+            continue
+        for t in batch:
+            if not isinstance(raw.columns, pd.MultiIndex) or t not in set(
+                    raw.columns.get_level_values(0)):
+                continue
+            sp = raw[t].get("Stock Splits")
+            if sp is None:
+                continue
+            sp = sp[sp.fillna(0) > 0]
+            if sp.empty:
+                rows.append({"ticker": t, "date": "", "ratio": np.nan})
+            for d, r in sp.items():
+                rows.append({"ticker": t, "date": str(pd.Timestamp(d).date()), "ratio": float(r)})
+        if rows:
+            done = pd.concat([done, pd.DataFrame(rows)], ignore_index=True)
+            done.to_csv(SPLITS_CSV, index=False)
+        if (i // batch_size) % 10 == 0:
+            log(f"  {min(i + batch_size, len(todo))}/{len(todo)}")
+        time.sleep(pause)
+    return done
+
+
+def split_factor(days: pd.DatetimeIndex) -> pd.DataFrame:
+    """(date x stock) multiplier turning Yahoo's raw price into the price that traded.
+
+    Stocks without split data get 1.  The factor on day ``d`` is the product of
+    the ratios of all splits dated after ``d``.
+    """
+    if not SPLITS_CSV.exists():
+        return pd.DataFrame(index=days)
+    sp = pd.read_csv(SPLITS_CSV, dtype={"ticker": str}).dropna(subset=["ratio"])
+    sp = sp[sp["date"].astype(str).str.len() > 0]
+    out = {}
+    for t, g in sp.groupby("ticker"):
+        sid = t.split(".")[0]
+        ev = pd.Series(g["ratio"].to_numpy(), index=pd.to_datetime(g["date"])).groupby(
+            level=0).prod().sort_index()
+        # factor(d) = prod of ratios with date > d
+        tail = ev[::-1].cumprod()[::-1]  # tail[k] = prod of ratios from event k on
+        pos = ev.index.searchsorted(days, side="right")
+        vals = np.append(tail.to_numpy(), 1.0)[pos]
+        out[sid] = vals
+    return pd.DataFrame(out, index=days)
+
+
+# ---------------------------------------------------------------------------
 # Cleaning
 # ---------------------------------------------------------------------------
 
@@ -270,25 +357,37 @@ def fix_jumps(df: pd.DataFrame, sessions: pd.DatetimeIndex) -> tuple[pd.DataFram
 # ---------------------------------------------------------------------------
 
 PANEL_FIELDS = ["open", "high", "low", "close", "raw_close", "raw_open", "volume", "turnover"]
-CLEAN_LOG = DERIVED_DIR / "cleaning.csv"
-
-
 def _panel_path(name: str):
-    return DERIVED_DIR / f"px_{name}.parquet"
+    return config.derived_dir() / f"px_{name}.parquet"
 
 
-def build_panels(log=print) -> None:
-    """Assemble wide matrices (dates x stock_id) from the per-symbol cache."""
+def _cached(ticker: str) -> pd.DataFrame | None:
+    p = price_path(ticker)
+    return pd.read_parquet(p) if p.exists() else None
+
+
+def build_panels(log=print, loader=_cached) -> None:
+    """Assemble wide matrices (dates x stock_id) from the per-symbol cache.
+
+    ``loader(ticker)`` returns the raw bars of one symbol (default: the research
+    cache; live mode passes the cache merged with recent bars).
+    """
     ensure_dirs()
+    out_dir = config.derived_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
     uni = load_universe()
     fields: dict[str, dict[str, pd.Series]] = {k: {} for k in PANEL_FIELDS}
     cleaning = []
+    if config.is_live():
+        idx_raw = loader(INDEX_TICKER)
+        idx_raw.to_parquet(out_dir / "index.parquet")
+        load_index.cache_clear()
     sessions = load_index().index
     for tkr, sid in zip(uni["ticker"], uni["stock_id"], strict=True):
-        p = price_path(tkr)
-        if not p.exists():
+        raw = loader(tkr)
+        if raw is None or raw.empty:
             continue
-        df, n_zero, n_spike = clean_bars(pd.read_parquet(p))
+        df, n_zero, n_spike = clean_bars(raw)
         df, n_jump = fix_jumps(df, sessions)
         cleaning.append({"stock": sid, "bars": len(df), "zero_volume": n_zero, "spikes": n_spike,
                          "jumps": n_jump})
@@ -313,7 +412,7 @@ def build_panels(log=print) -> None:
         # Bars with zero volume are quotes without trades; treat as no trade.
         m.to_parquet(_panel_path(k))
     cl = pd.DataFrame(cleaning)
-    cl.to_csv(CLEAN_LOG, index=False)
+    cl.to_csv(out_dir / "cleaning.csv", index=False)
     log(f"panels: {len(days)} days x {len(fields['close'])} stocks; dropped "
         f"{int(cl['zero_volume'].sum()):,} zero-volume and {int(cl['spikes'].sum()):,} spike bars, "
         f"clipped {int(cl['jumps'].sum()):,} beyond-limit moves")
@@ -329,8 +428,11 @@ def trading_days() -> pd.DatetimeIndex:
     return pd.DatetimeIndex(load_panel("close").index)
 
 
+@lru_cache(maxsize=None)
 def load_index() -> pd.DataFrame:
-    """^TWII bars (price index, no dividends)."""
+    """^TWII bars (price index, no dividends); in live mode the merged live copy."""
+    if config.is_live():
+        return pd.read_parquet(config.derived_dir() / "index.parquet")
     return pd.read_parquet(price_path(INDEX_TICKER))
 
 

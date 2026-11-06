@@ -15,6 +15,15 @@ Commands, in pipeline order::
     viewer     export docs/viewer data
     report     results/report.md and results/equity.png
     all        every step after fetch, in order
+
+Going live (genesis/FIAT-deploy.md)::
+
+    odd-lot    odd-lot and whole-lot quotes of the trade days -> results/deploy/oddlot.json
+    deploy     capital x lot scheme x costs sweep, settlement cash -> results/deploy/
+    deploy-report  results/deploy/SUMMARY.md and figures
+    update     recent bars -> live panels, features and scores (data/live/)
+    plan       next trade day's book and order list for a paper account
+    paper      book a plan at the real open, value the paper account
 """
 
 from __future__ import annotations
@@ -100,10 +109,9 @@ def _cmd_wfv(args) -> None:
 
 
 def _cmd_stacked(args) -> None:
+    from . import experiments as X
     from .stacked import draw
     from .universe import name_map
-
-    from . import experiments as X
 
     names = name_map()
     specs = _selected(args) if args.only else X.viewer_experiments()
@@ -135,6 +143,95 @@ def _cmd_rebalance_report(args) -> None:
     from .rebalance_report import build
 
     build(log=_log)
+
+
+def _cmd_oddlot(args) -> None:
+    from . import deploy, oddlot
+
+    deploy.ensure_splits(log=_log)
+    dates = set()
+    for s in deploy.SPECS:
+        dates |= {t["date"] for t in deploy.book(s).trades}
+    failed = oddlot.fetch(sorted(dates), log=_log)
+    if failed:
+        _log(f"{len(failed)} files still missing (listed in data/odd/failed.txt); rerun later")
+    deploy.oddlot_report(log=_log)
+
+
+def _cmd_deploy(args) -> None:
+    from . import deploy
+
+    deploy.run(workers=args.workers, log=_log)
+
+
+def _cmd_deploy_report(args) -> None:
+    from .deploy_report import build
+
+    build(log=_log)
+
+
+def _cmd_update(args) -> None:
+    from . import live
+
+    live.update(fetch=not args.no_fetch, log=_log)
+
+
+def _money(x) -> str:
+    return f"{x:,.0f}"
+
+
+def _cmd_plan(args) -> None:
+    from . import live
+
+    out = live.plan(date=args.date, capital=args.capital, ledger=args.ledger, exp=args.exp,
+                    scheme=args.scheme, discount=args.discount, slip_odd=args.slip,
+                    reserve=args.reserve, force=args.force, log=_log)
+    regime = "滿倉" if out["scale"] == 1.0 else "降半倉（加權指數 <= 120 日 EMA）"
+    print(f"\n{out['date']}（資料到 {out['data_through']} 收盤）  實驗 {out['experiment']}  "
+          f"{regime}")
+    print(f"帳戶淨值（前一日收盤）{_money(out['nav_at_close'])}，現金 {_money(out['cash'])}")
+    if not out["orders_issued"]:
+        print(f"不下單：{out['why']}。下一個換股日 {out['next_trade_day']}")
+        return
+    print(f"換股：{out['why']}；新增 {' '.join(out['added']) or '-'}；"
+          f"剔除 {' '.join(out['dropped']) or '-'}")
+    print(f"\n{'代號':<6}{'名稱':<8}{'買賣':<4}{'盤別':<4}{'數量':>9}{'參考價':>10}"
+          f"{'漲停':>10}{'跌停':>10}{'約金額':>12}")
+    for o in out["orders"]:
+        side = "賣" if o["side"] == "sell" else "買"
+        qty = f"{o['lots']} 張" if o["board"] == "整股" else f"{o['shares']} 股"
+        print(f"{o['stock']:<6}{o['name'][:6]:<8}{side:<4}{o['board']:<4}{qty:>9}"
+              f"{o['ref_close']:>10.2f}{o['limit_up']:>10.2f}{o['limit_down']:>10.2f}"
+              f"{o['est_value']:>12,.0f}")
+    pay = out["est_settlement"]
+    print(f"\n約買進 {_money(out['est_buy'])}、約賣出 {_money(out['est_sell'])}；"
+          f"T+2 約{'付' if pay > 0 else '收'} {_money(abs(pay))}（以前一日收盤價估）")
+    print(f"委託清單：{live.Ledger.resolve(args.ledger) / 'plans' / (out['date'] + '.csv')}")
+
+
+def _cmd_paper(args) -> None:
+    from . import live
+
+    if args.date is None:
+        rows = live.mark_only(ledger=args.ledger, log=_log)
+        if rows:
+            r = rows[-1]
+            print(f"{r['date']} 淨值 {_money(r['nav'])}（現金 {_money(r['cash'])}）")
+        else:
+            print("沒有新的交易日可以估值")
+        return
+    out = live.paper(args.date, ledger=args.ledger, odd=args.odd, log=_log)
+    for f in out["fills"]:
+        side = "賣" if f["side"] == "sell" else "買"
+        price = f"{f['price']:.2f}" if f["price"] is not None else "-"
+        print(f"{f['stock']:<6}{f['name'][:6]:<8}{side} {f['board']} {f['shares']:>7} 股 "
+              f"@ {price:>9}  {f['status']}")
+    pay = out["settlement"]
+    nav = _money(out["nav"]) if out["nav"] is not None else "-"
+    print(f"T+2（{out['settles_on']}）{'付' if pay > 0 else '收'} {_money(abs(pay))}；"
+          f"現金 {_money(out['cash'])}；淨值 {nav}")
+    if out["unfilled"]:
+        print(f"沒成交 {len(out['unfilled'])} 筆，見 fills.csv")
 
 
 def _cmd_all(args) -> None:
@@ -178,12 +275,50 @@ def build_parser() -> argparse.ArgumentParser:
         func=_cmd_rebalance_report)
     sub.add_parser("viewer", help="export docs/viewer").set_defaults(func=_cmd_viewer)
     sub.add_parser("report", help="results/report.md").set_defaults(func=_cmd_report)
+
+    sub.add_parser("odd-lot", help="odd-lot quotes of the trade days and their estimate"
+                   ).set_defaults(func=_cmd_oddlot)
+    p = sub.add_parser("deploy", help="capital x lots x costs sweep and settlement cash")
+    p.add_argument("--workers", type=int, default=8)
+    p.set_defaults(func=_cmd_deploy)
+    sub.add_parser("deploy-report", help="results/deploy/SUMMARY.md and figures").set_defaults(
+        func=_cmd_deploy_report)
+
+    p = sub.add_parser("update", help="recent bars -> live panels, features and scores")
+    p.add_argument("--no-fetch", action="store_true", help="rebuild from the bars already here")
+    p.set_defaults(func=_cmd_update)
+    p = sub.add_parser("plan", help="order list of the next trade day for a paper account")
+    p.add_argument("--date", help="trade date (default: the session after the latest data)")
+    p.add_argument("--capital", type=float, help="opens a new paper account with this much cash")
+    p.add_argument("--ledger", help="account name under paper/ or a directory (default: default)")
+    p.add_argument("--exp", default="w20", help="experiment id for a new account (default: w20)")
+    p.add_argument("--scheme", choices=["A", "B"], default="B",
+                   help="A: odd lots only; B: whole lots + odd remainder (default: B)")
+    p.add_argument("--discount", type=float, default=0.6, help="fee multiplier (default: 0.6)")
+    p.add_argument("--slip", type=float, default=0.002,
+                   help="odd-lot slippage when exchange data is missing (default: 0.002)")
+    p.add_argument("--reserve", type=float, default=0.0,
+                   help="fraction of the account kept out of the book (default: 0)")
+    p.add_argument("--force", action="store_true", help="issue orders on a non-trade day")
+    p.set_defaults(func=_cmd_plan)
+    p = sub.add_parser("paper", help="book a plan at the real open; without --date only value")
+    p.add_argument("--date", help="trade date whose plan to book")
+    p.add_argument("--ledger", help="account name under paper/ or a directory (default: default)")
+    p.add_argument("--odd", choices=["exchange", "slip"], default="exchange",
+                   help="odd-lot price: first intraday print (exchange data) or open +/- slippage")
+    p.set_defaults(func=_cmd_paper)
     return ap
 
 
 def main(argv: list[str] | None = None) -> None:
     ap = build_parser()
     args = ap.parse_args(argv)  # argparse rejects unknown arguments
+    if args.func in (_cmd_plan, _cmd_paper):  # user-facing refusals: no traceback
+        try:
+            args.func(args)
+        except (ValueError, FileNotFoundError) as exc:
+            sys.exit(f"twrank {args.cmd}: {exc}")
+        return
     args.func(args)
 
 

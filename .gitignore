@@ -16,3 +16,7 @@ altar/
 
 # Large sweep return matrices (rebuild with `twrank rebalance`)
 results/rebalance/*_returns.parquet
+results/deploy/settlement.csv
+
+# Paper trading accounts (twrank plan / paper)
+/paper/

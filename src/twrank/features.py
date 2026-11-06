@@ -22,7 +22,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import DERIVED_DIR, INDEX_TICKER
+from . import config
+from .config import INDEX_TICKER
 from .data import load_index, load_panel
 
 HORIZONS = (21, 63)
@@ -42,7 +43,10 @@ FEATURES = [
     "clv21", "ogap21", "ups63",
 ]
 
-TABLE = DERIVED_DIR / "table.parquet"
+
+
+def table_path():
+    return config.derived_dir() / "table.parquet"
 
 
 def calendar() -> pd.DatetimeIndex:
@@ -128,8 +132,13 @@ def raw_features(P: dict[str, pd.DataFrame], mkt_close: pd.Series):
     yield "ups63", (r > 0).astype(float).where(r.notna()).rolling(63, min_periods=40).mean()
 
 
-def build_table(log=print) -> pd.DataFrame:
-    days = calendar()
+def build_table(log=print, days: pd.DatetimeIndex | None = None) -> pd.DataFrame:
+    """Feature/label table over ``days`` (default: the trading calendar).
+
+    Live mode appends the next, not yet traded session to ``days``: its row
+    then holds the features of the latest close, ready to be scored.
+    """
+    days = calendar() if days is None else days
     P = _panels(days)
     E = eligible(days)
     mkt = load_index()["Close"].reindex(days).ffill()
@@ -158,13 +167,13 @@ def build_table(log=print) -> pd.DataFrame:
                        np.datetime64("NaT"))
         out[f"end{h}"] = end[rix]
     table = pd.DataFrame(out)
-    table.to_parquet(TABLE, index=False)
-    log(f"saved {TABLE} ({len(table):,} rows, {days[0].date()}..{days[-1].date()})")
+    table.to_parquet(table_path(), index=False)
+    log(f"saved {table_path()} ({len(table):,} rows, {days[0].date()}..{days[-1].date()})")
     return table
 
 
 def load_table() -> pd.DataFrame:
-    return pd.read_parquet(TABLE)
+    return pd.read_parquet(table_path())
 
 
 __all__ = ["FEATURES", "HORIZONS", "INDEX_TICKER", "build_table", "calendar", "eligible",
