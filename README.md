@@ -404,7 +404,7 @@ Yahoo 的台股日 K 從 2000-01-04 開始；上櫃股票 2008 年以前完全�
 需要 [uv](https://docs.astral.sh/uv/) 與 Python 3.13 以上。
 
 ```bash
-git clone https://github.com/<owner>/tw-stock-rank-yfinance.git
+git clone https://github.com/neritina-ai/tw-stock-rank-yfinance.git
 cd tw-stock-rank-yfinance
 uv sync
 
