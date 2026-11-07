@@ -5,7 +5,7 @@
 
 > **AI model declaration** — 本專案的設計、程式與文件由 **Claude Opus 5.5**（Anthropic）透過 Claude Code 完成。
 
-這個 repo 重做先前另一個 LightGBM 排序研究：那個研究用私有的日 K 資料庫，2018 年以前另外加了基本面與籌碼特徵，
+這個 repo 重做[先前另一個 LightGBM 排序研究](https://github.com/neritina-ai/tw-stock-finlab-fable)：那個研究用私有的日 K 資料庫，2018 年以前另外加了基本面與籌碼特徵，
 2019 年以後只剩價量。既然最後只用價量，這裡全部改用公開資料從頭寫，資料也從 2000 年開始，比原研究長。
 需求的演進記在 [genesis/](genesis/README.md)。
 資料下載、股票清單、快取與 `data.lock`、換股日與檔數的掃描、viewer 與疊加圖，沿用同系列
@@ -363,6 +363,8 @@ Yahoo 的台股日 K 從 2000-01-04 開始；上櫃股票 2008 年以前完全�
 最常用到的特徵是 63 日波動、12-1 月動能、離 52 週高點的距離與日內振幅（`results/models/importance.csv`）。
 
 ### 和先前研究對照
+
+先前研究的數字取自它的 [`research/h63-ensemble.md`](https://github.com/neritina-ai/tw-stock-finlab-fable/blob/h63-ensemble-v1/research/h63-ensemble.md)（all4 組合）。
 
 | 期間 | 本 repo Sharpe | 先前研究 | 本 repo 年化 | 先前研究 | 本 repo 回檔 | 先前研究 | 本 repo 週轉 | 先前研究 |
 |---|---|---|---|---|---|---|---|---|

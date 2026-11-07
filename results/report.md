@@ -79,6 +79,8 @@
 
 ## 和先前研究六段對照
 
+先前研究的數字取自它的 [`research/h63-ensemble.md`](https://github.com/neritina-ai/tw-stock-finlab-fable/blob/h63-ensemble-v1/research/h63-ensemble.md)（all4 組合）。
+
 | 段 | 期間 | 本 repo Sharpe | 先前研究 Sharpe | 本 repo 年化 | 先前研究年化 | 本 repo 回檔 | 先前研究回檔 | 本 repo 週轉 | 先前研究週轉 |
 |---|---|---|---|---|---|---|---|---|---|
 | 5 | 2014-15 | 1.27 | 1.30 | +10.7% | +12.2% | -10.4% | -10.6% | 7.9× | 8.1× |

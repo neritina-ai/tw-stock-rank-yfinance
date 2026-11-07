@@ -14,6 +14,7 @@ from .config import RESULTS_DIR
 #: rules: top 30, buffer 4 x 30, 4-week smoothing, half exposure below the
 #: 120-day EMA).  Before 2019 its score also used fundamental and chip
 #: features; from 2019 on it was the same price/volume 21-day + 63-day ensemble.
+ORIGINAL_URL = "https://github.com/neritina-ai/tw-stock-finlab-fable/blob/h63-ensemble-v1/research/h63-ensemble.md"
 ORIGINAL = pd.DataFrame(
     {
         "stage": [5, 6, 7, 8, 9, 10],
@@ -198,7 +199,8 @@ def build(ids: list[str] | None = None, log=print) -> None:
     parts += ["## 基本款各段", "", stage_table("base"), ""]
     parts += ["## 各實驗各段 Sharpe", "", stage_sharpe_matrix(ids), ""]
     parts += ["## 逐年報酬", "", yearly_table(ids), ""]
-    parts += ["## 和先前研究六段對照", "", original_table("base"), ""]
+    parts += ["## 和先前研究六段對照", "", f"先前研究的數字取自它的 [`research/h63-ensemble.md`]({ORIGINAL_URL})（all4 組合）。", "",
+              original_table("base"), ""]
     sel = RESULTS_DIR / "exp" / "wfv" / "summary.json"
     if sel.exists():
         s = json.loads(sel.read_text(encoding="utf-8"))
