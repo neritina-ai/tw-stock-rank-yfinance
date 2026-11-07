@@ -197,12 +197,13 @@ const fmtD = (i) => { const d = new Date(S.days[i]); return d.toISOString().slic
 const pct = (v, d = 1) => v == null ? "—" : (v * 100).toFixed(d) + "%";
 const spct = (v, d = 1) => v == null ? "—" : (v >= 0 ? "+" : "") + (v * 100).toFixed(d) + "%";
 const num = (v, d = 2) => v == null ? "—" : v.toFixed(d);
-function dur(days) {
-  if (days < 7) return days + " 天";
-  if (days < 70) return Math.round(days / 7) + " 週";
-  if (days < 730) return Math.round(days / 30.4) + " 個月";
-  return (days / 365.25).toFixed(1) + " 年";
-}
+// holding time is always counted in calendar weeks (Monday to Sunday) between the two trade days,
+// never by rounding days: a trade moved to a Friday by a holiday would otherwise count as an extra week
+const weekNo = (ms) => Math.floor((ms / DAY + 3) / 7);  // 1970-01-01 was a Thursday
+const weeks = (a, b) => weekNo(S.days[b]) - weekNo(S.days[a]);  // day indices
+// compact traded price: 3 significant digits below 100, whole numbers above
+const fpx = (p) => p >= 100 ? String(Math.round(p)) : String(+p.toFixed(p >= 10 ? 1 : 2));
+const fret = (bp) => { const x = bp / 100; return (x > 0 ? "+" : "") + (Math.abs(x) < 9.95 ? x.toFixed(1) : Math.round(x)) + "%"; };
 
 // ---------- colours for the ranking list ----------
 // held: yellow (just added) -> red (held a long time); dropped: deep green -> faint
@@ -275,20 +276,44 @@ function loadPx(sid) {
 // ---------- state helpers ----------
 const trade = () => S.exp.trades[S.ti];
 function rowsOf(t) {
-  return t.r.map((r, k) => ({ sid: r[0], p: r[1], w: r[2], hs: r[3], da: r[4], k }));
+  // rows dropped on this trade carry the round trip: traded buy and sell open, dividend-inclusive return (bp)
+  return t.r.map((r, k) => ({ sid: r[0], p: r[1], w: r[2], hs: r[3], da: r[4], k,
+    trip: r.length > 5 ? { bp: r[5], sp: r[6], ret: r[7] } : null }));
 }
 function statusOf(row, t) {
   const day = S.days[t.d];
-  const st = { held: row.hs >= 0, heldDays: 0, droppedDays: null, added: false, dropped: false };
+  const st = { held: row.hs >= 0, heldDays: 0, heldWeeks: 0, droppedDays: null, droppedWeeks: null, added: false, dropped: false };
   if (st.held) {
     const t0 = S.exp.trades[row.hs];
     st.heldDays = Math.round((day - S.days[t0.d]) / DAY);
+    st.heldWeeks = weeks(t0.d, t.d);
     st.added = row.hs === S.ti;
   } else if (row.da >= 0) {
-    st.droppedDays = Math.round((day - S.days[S.exp.trades[row.da].d]) / DAY);
+    const t1 = S.exp.trades[row.da];
+    st.droppedDays = Math.round((day - S.days[t1.d]) / DAY);
+    st.droppedWeeks = weeks(t1.d, t.d);
     st.dropped = row.da === S.ti;
   }
   return st;
+}
+// the trade a just-dropped row was bought on: its holding start on the previous trade
+function boughtAt(sid) {
+  const prev = S.exp.trades[S.ti - 1];
+  const r = prev && prev.r.find((x) => x[0] === sid);
+  return r && r[3] >= 0 ? S.exp.trades[r[3]] : null;
+}
+// a missing sell price means the stock did not trade that day (halted or no volume): it could not be sold yet
+function tripShort(row) {
+  const x = row.trip; if (!x) return "本次汰除";
+  return `${x.bp == null ? "—" : fpx(x.bp)}→${x.sp == null ? "未成交" : fpx(x.sp)}${x.ret == null ? "" : " " + fret(x.ret)}`;
+}
+function tripLong(row) {
+  const x = row.trip; if (!x) return "本次汰除";
+  const b = boughtAt(row.sid), t = trade();
+  const buy = `${b ? fmtD(b.d) + " " : ""}開盤買 ${x.bp == null ? "（缺資料）" : x.bp}`;
+  if (x.sp == null) return `本次汰除：${buy}；${fmtD(t.d)} 沒有成交（停牌或無量），要等之後有成交才賣得掉`;
+  return `本次汰除：${buy} → ${fmtD(t.d)} 開盤賣 ${x.sp}` +
+    `${b ? `，持有 ${weeks(b.d, t.d)} 週` : ""}${x.ret == null ? "" : `，含息報酬 ${fret(x.ret)}`}（未扣成本）`;
 }
 function nextTradeDay(ti) {
   const t = S.exp.trades[ti + 1];
@@ -320,7 +345,8 @@ function renderLegend() {
   const g = (stops) => "linear-gradient(90deg," + stops.map(([x, c]) => `rgb(${c}) ${Math.min(100, x / 9)}%`).join(",") + ")";
   $("legend").innerHTML =
     `<span><i style="background:${g(HELD)}"></i>持有：剛選入 → 持有愈久愈紅</span>` +
-    `<span><i style="background:linear-gradient(90deg, rgba(26,140,75,.9), rgba(26,140,75,.06))"></i>剔除：剛剔除 → 一年後淡出</span>`;
+    `<span><i style="background:linear-gradient(90deg, rgba(26,140,75,.9), rgba(26,140,75,.06))"></i>剔除：剛剔除 → 一年後淡出</span>` +
+    `<span>本次汰除：買價→賣價 含息報酬</span>`;
 }
 function renderList() {
   const t = trade();
@@ -330,14 +356,17 @@ function renderList() {
   rows.forEach((r, i) => {
     const st = statusOf(r, t);
     const name = S.meta.names[r.sid] || "";
-    let stat = "";
-    if (st.held) stat = st.added ? "新進" : "持有 " + dur(st.heldDays);
-    else if (st.droppedDays != null) stat = st.dropped ? "本次汰除" : st.droppedDays <= DROP_FADE ? "剔除 " + dur(st.droppedDays) + "前" : "曾持有";
+    let stat = "", tip = "";
+    if (st.held) stat = st.added ? "新進" : `持有 ${st.heldWeeks} 週`;
+    else if (st.droppedDays != null) {
+      if (st.dropped) { stat = tripShort(r); tip = tripLong(r); }
+      else stat = st.droppedDays <= DROP_FADE ? `剔除 ${st.droppedWeeks} 週前` : "曾持有";
+    }
     const cls = [i === S.si ? "cur" : "", i === t.top ? "sep" : ""].join(" ");
     html += `<tr data-i="${i}" class="${cls}" style="${rowStyle(st)}"><td>${i < t.top ? i + 1 : "–"}</td>` +
       `<td class="l">${r.sid}</td><td class="l">${name}</td>` +
       `<td>${r.p >= 0 ? (r.p / 10).toFixed(1) : "—"}</td><td>${r.w > 0 ? (r.w / 100).toFixed(2) + "%" : ""}</td>` +
-      `<td class="l">${stat}</td></tr>`;
+      `<td class="l"${tip ? ` title="${tip}"` : ""}>${stat}</td></tr>`;
   });
   tb.innerHTML = html;
   // keep the current row in view by scrolling the list only: scrollIntoView would also scroll
@@ -529,8 +558,8 @@ function renderStockHead() {
   if (!r) { $("stockhead").innerHTML = ""; return; }
   const st = statusOf(r, t);
   const name = S.meta.names[r.sid] || "";
-  const stat = st.held ? (st.added ? "本次新進" : "已連續持有 " + dur(st.heldDays)) :
-    st.droppedDays != null ? (st.dropped ? "本次汰除" : "剔除於 " + dur(st.droppedDays) + "前") : "未持有";
+  const stat = st.held ? (st.added ? "本次新進" : `已連續持有 ${st.heldWeeks} 週`) :
+    st.droppedDays != null ? (st.dropped ? tripLong(r) : `剔除於 ${st.droppedWeeks} 週前`) : "未持有";
   $("stockhead").innerHTML = `<span class="nm">${r.sid} ${name}</span>` +
     `<span class="meta">第 ${S.si < t.top ? S.si + 1 : "–"} 名・分數 ${r.p >= 0 ? (r.p / 10).toFixed(1) : "—"}・權重 ${(r.w / 100).toFixed(2)}%・${stat}</span>` +
     `<span class="meta" style="margin-left:auto"><span style="display:inline-block;width:12px;height:9px;background:var(--look);border:1px solid var(--line)"></span> 回推 ${S.meta.lookback} 個交易日　` +

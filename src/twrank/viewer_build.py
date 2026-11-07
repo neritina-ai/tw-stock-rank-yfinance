@@ -9,6 +9,10 @@ GitHub Pages only serves files, so everything is pre-computed:
     one experiment: metrics, daily equity of strategy and 0050, and every
     trade day's ranking list (top 50 by score plus holdings outside it and the
     names dropped that day) with score percentile, weight and holding history.
+    A row dropped on that trade also carries the round trip: the opens that
+    actually traded on the buy and the sell day (Yahoo's raw open times the
+    later split ratios, as in ``lots``) and the dividend-inclusive return
+    between the two adjusted opens, in basis points, before costs.
 ``data/px/<stock>.bin``
     one stock, fetched on demand: zlib-compressed little-endian arrays of
     ``n`` days each -- int16 close in log ticks of 0.1% (-32768 = no bar),
@@ -29,7 +33,7 @@ import pandas as pd
 
 from . import experiments as X
 from .config import DOCS_DIR
-from .data import load_bench, load_panel, read_lock
+from .data import load_bench, load_panel, read_lock, split_factor
 from .features import LOOKBACK, calendar
 from .metrics import bench_returns
 from .portfolio import score_panel
@@ -69,7 +73,24 @@ def _metrics(summ: dict) -> dict:
     }
 
 
-def export_experiment(spec, days: pd.DatetimeIndex, out: Path) -> tuple[set, int]:
+def _opens(days: pd.DatetimeIndex) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(traded open, adjusted open) on every day: what a fill cost, and what it was worth."""
+    raw = load_panel("raw_open").reindex(days)
+    k = split_factor(days).reindex(index=days, columns=raw.columns).fillna(1.0)
+    return raw * k, load_panel("open").reindex(days)
+
+
+def _round_trip(opens, buy: pd.Timestamp, sell: pd.Timestamp, s: str) -> list:
+    traded, adj = opens
+    if s not in traded.columns:
+        return [None, None, None]
+    bp, sp = traded.at[buy, s], traded.at[sell, s]
+    r = adj.at[sell, s] / adj.at[buy, s] - 1
+    return [_r(bp, 2), _r(sp, 2), int(round(r * 10000)) if np.isfinite(r) else None]
+
+
+def export_experiment(spec, days: pd.DatetimeIndex, out: Path, opens=None) -> tuple[set, int]:
+    opens = opens if opens is not None else _opens(days)
     summ = X.load_summary(spec.id)
     curve = X.load_curve(spec.id)
     trades = X.load_trades(spec.id)
@@ -85,15 +106,19 @@ def export_experiment(spec, days: pd.DatetimeIndex, out: Path) -> tuple[set, int
     union: set[str] = set()
     smin, smax = 1.0, 0.0
     prev: set[str] = set()
+    tdays = [pd.Timestamp(x) for x in trades["date"]]
     for i, tr in enumerate(trades.itertuples(index=False)):
         d = pd.Timestamp(tr.date)
         held = set(tr.held)
         for s in held - prev:
             held_since[s] = i
             dropped_at.pop(s, None)
+        trips = {}
         for s in prev - held:
             dropped_at[s] = i
-            held_since.pop(s, None)
+            a = held_since.pop(s, None)
+            if a is not None:
+                trips[s] = _round_trip(opens, tdays[a], d, s)
         prev = held
         p = pct.loc[d].dropna().sort_values(ascending=False, kind="stable")
         listed = list(p.index[:TOP])
@@ -106,7 +131,7 @@ def export_experiment(spec, days: pd.DatetimeIndex, out: Path) -> tuple[set, int
             ww = wrow.get(s, 0.0)
             rows.append([s, int(round(v * 1000)) if np.isfinite(v) else -1,
                          int(round(ww * 10000)) if np.isfinite(ww) else 0,
-                         held_since.get(s, -1), dropped_at.get(s, -1)])
+                         held_since.get(s, -1), dropped_at.get(s, -1)] + trips.get(s, []))
         union.update(listed)
         union.update(extra)
         rows_out.append({"d": day_ix[d], "x": tr.scale, "n": int(len(p)), "r": rows,
@@ -172,8 +197,9 @@ def build(log=print) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     shutil.copy(TEMPLATE, OUT / "index.html")
     union: set[str] = set()
+    opens = _opens(days)
     for e in specs:
-        u, size = export_experiment(e, days, OUT)
+        u, size = export_experiment(e, days, OUT, opens)
         union |= u
         log(f"exp {e.id}: {size / 1e6:.2f} MB, {len(u)} listed stocks")
     names = name_map()
