@@ -189,7 +189,7 @@ REC_DAY = 11  # best day on the day-smoothed Sharpe map at 20 names (days 9-15 a
 REC_SIZE = 20  # on the plateau of both schedules (weekly 12-20, monthly 20-30)
 
 REBALANCE_EXPERIMENTS = [
-    X.BASE.with_(id="w20", label="每週 20 檔", top_n=REC_SIZE,
+    X.BASE.with_(id="w20", label="每週 20 檔", top_n=REC_SIZE, tags=("上線",),  # live.plan's default
                  note="建議設定：每週換股、前 20 名，其餘同基本款"),
     X.BASE.with_(id="m11n20", label=f"每月 {REC_DAY} 日 20 檔", schedule="monthly", day=REC_DAY,
                  top_n=REC_SIZE, note=f"每月換股的建議：每月 {REC_DAY} 日（休市順延）、前 20 名，其餘同基本款"),

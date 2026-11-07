@@ -41,6 +41,11 @@ header h1 { font-size: 15px; margin: 0; font-weight: 650; }
   border-radius: 6px; padding: 3px 9px; font: inherit; cursor: pointer; }
 #tabs button.on { background: var(--ink); color: var(--panel); border-color: var(--ink); }
 #tabs button kbd { opacity: .55; font-size: 11px; margin-right: 3px; }
+#tabs button .tg { font-size: 10.5px; font-weight: 650; border-radius: 999px; padding: 0 5px; margin-left: 4px;
+  background: var(--ink); color: var(--panel); }
+#tabs button.on .tg { background: var(--panel); color: var(--ink); }
+#home { color: var(--ink2); text-decoration: none; font-size: 12.5px; white-space: nowrap; }
+#home:hover { color: var(--ink); }
 .hint { color: var(--muted); font-size: 11.5px; margin-top: 6px; }
 .hint kbd, .k { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
   padding: 0 4px; font: 11px ui-monospace, monospace; color: var(--ink2); }
@@ -118,6 +123,7 @@ table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nu
 <body>
 <header>
   <h1>台股 LightGBM 排序策略・持股變化</h1>
+  <a id="home" href="../">← 研究成果</a>
   <div id="tabs" role="tablist" aria-label="實驗"></div>
   <button id="theme" title="切換深淺色">◐</button>
 </header>
@@ -708,7 +714,7 @@ async function boot() {
   const days = [Date.parse(S.meta.d0 + "T00:00:00Z")];
   for (const d of S.meta.dd) days.push(days[days.length - 1] + d * DAY);
   S.days = days;
-  $("tabs").innerHTML = S.meta.exps.map((e, i) => `<button data-id="${e.id}" title="${e.note}">${i < 9 ? `<kbd>${i + 1}</kbd>` : ""}${e.label}</button>`).join("");
+  $("tabs").innerHTML = S.meta.exps.map((e, i) => `<button data-id="${e.id}" title="${e.note}">${i < 9 ? `<kbd>${i + 1}</kbd>` : ""}${e.label}${(e.tags || []).map((t) => `<span class="tg">${t}</span>`).join("")}</button>`).join("");
   $("tabs").addEventListener("click", (ev) => { const b = ev.target.closest("button"); if (b) setExperiment(b.dataset.id); });
   renderLegend();
   const h = readHash();

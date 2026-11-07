@@ -3,6 +3,8 @@
 每週用 LightGBM 對台股做橫斷面排序，挑前 30 名等權重做多；加權指數跌破 120 日均線時降到半倉。
 只用公開免費資料（證交所的股票清單與指數、Yahoo Finance 日 K），任何人 clone 下來都能自己重跑、驗證。
 
+**網頁版成果**：<https://neritina-ai.github.io/tw-stock-rank-yfinance/>，先看上線版（每週 20 檔）與基本款對 0050 的表現，最後可以打開持股變化 viewer。
+
 > **AI model declaration** — 本專案的設計、程式與文件由 **Claude Opus 5.5**（Anthropic）透過 Claude Code 完成。
 
 這個 repo 重做[先前另一個 LightGBM 排序研究](https://github.com/neritina-ai/tw-stock-finlab-fable)：那個研究用私有的日 K 資料庫，2018 年以前另外加了基本面與籌碼特徵，
@@ -56,7 +58,8 @@
 
 ### 網頁 viewer
 
-線上看：<https://neritina-ai.github.io/tw-stock-rank-yfinance/viewer/>（程式在 [`docs/viewer/`](docs/viewer/index.html)；本機見[怎麼重跑](#怎麼重跑)）
+線上看：<https://neritina-ai.github.io/tw-stock-rank-yfinance/viewer/>（程式在 [`docs/viewer/`](docs/viewer/index.html)；本機見[怎麼重跑](#怎麼重跑)）。
+上一層的 [`docs/index.html`](docs/index.html) 是成果介紹頁，數字與曲線直接讀 viewer 的資料；上線用的設定（每週 20 檔）在 viewer 的分頁上標有「上線」
 
 * **左邊排行榜**：每次換股時分數前 50 名，加上排名外但還在續抱、或這次被汰除的股票；分數是排名百分位（100 = 最好）。
   持股依連續持有多久由黃轉紅，被剔除的依剔除多久由深綠漸淡（一年後不再上色）

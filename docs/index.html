@@ -4,8 +4,543 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>台股排序策略</title>
-<meta http-equiv="refresh" content="0; url=viewer/">
-<style>body{font:15px system-ui,sans-serif;margin:40px 16px;background:#f7f6f2;color:#1b1b19}@media (prefers-color-scheme:dark){body{background:#161615;color:#ecebe6}a{color:#6aa3e8}}</style>
+<meta name="description" content="每週用 LightGBM 替台股排名、買前 20 名：2006 ～ 2026 回測扣成本後年化 19.9%，同期 0050 含息 15.5%。只用公開資料，可自行重跑。">
+<meta property="og:title" content="台股 LightGBM 排序策略：20 年回測打贏大盤">
+<meta property="og:description" content="每週替上市櫃股票排名、買前 20 名，扣成本後年化 19.9%，同期 0050 含息 15.5%。附持股變化 viewer。">
+<meta property="og:type" content="website">
+<style>
+:root {
+  --bg: #f7f6f2; --panel: #ffffff; --ink: #1b1b19; --ink2: #5b5a55; --muted: #8b8a84;
+  --line: #e3e1da; --grid: #ecebe5;
+  --s1: #2f6db5; --s0: #8e8c85;           /* strategy, 0050: validated pair (light) */
+  --wash: rgba(27, 27, 25, 0.06); --s1wash: rgba(47, 109, 181, 0.10);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --ink2: #b4b3ac; --muted: #85847e;
+    --line: #34332f; --grid: #2a2a27;
+    --s1: #5a96e0; --s0: #7d7c76;
+    --wash: rgba(236, 235, 230, 0.07); --s1wash: rgba(90, 150, 224, 0.14);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --ink2: #b4b3ac; --muted: #85847e;
+  --line: #34332f; --grid: #2a2a27;
+  --s1: #5a96e0; --s0: #7d7c76;
+  --wash: rgba(236, 235, 230, 0.07); --s1wash: rgba(90, 150, 224, 0.14);
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.7 system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif; }
+a { color: var(--s1); }
+.top { display: flex; align-items: center; gap: 12px; max-width: 920px; margin: 0 auto; padding: 14px 16px; }
+.top .brand { font-weight: 650; font-size: 15px; }
+.top .sp { flex: 1; }
+.top a { font-size: 14px; color: var(--ink2); text-decoration: none; }
+.top a:hover { color: var(--ink); }
+#theme { border: 1px solid var(--line); background: transparent; color: var(--ink2); border-radius: 6px;
+  padding: 2px 8px; cursor: pointer; font: inherit; font-size: 14px; }
+main { max-width: 920px; margin: 0 auto; padding: 0 16px 48px; }
+section { margin-top: 44px; }
+h1 { font-size: clamp(26px, 5.2vw, 38px); line-height: 1.3; margin: 8px 0 14px; font-weight: 700; letter-spacing: .01em; }
+h2 { font-size: 21px; line-height: 1.4; margin: 0 0 8px; font-weight: 650; }
+p { margin: 0 0 12px; }
+.eyebrow { color: var(--muted); font-size: 14px; margin: 24px 0 0; }
+.lede { color: var(--ink2); font-size: 17px; max-width: 46em; }
+.sub { color: var(--ink2); font-size: 15px; }
+.note { color: var(--muted); font-size: 13px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+.badge { display: inline-block; font-size: 12px; font-weight: 650; line-height: 1.6; padding: 0 7px; border-radius: 999px;
+  background: var(--ink); color: var(--panel); vertical-align: 2px; margin-left: 4px; }
+.live { border-left: 4px solid var(--ink); }
+.live p { margin: 0; color: var(--ink2); font-size: 15px; }
+.live b { color: var(--ink); }
+.seg { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0 0; font-size: 14px; color: var(--ink2); }
+.seg button { border: 1px solid var(--line); background: var(--panel); color: var(--ink2); border-radius: 999px;
+  padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); font-weight: 650; }
+.hero-fig { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 18px 0 18px; }
+.hero-fig .big { font-size: 56px; line-height: 1.1; font-weight: 700; }
+.hero-fig .cap { color: var(--ink2); font-size: 16px; max-width: 34em; }
+.hero-fig b { color: var(--ink); }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.tile .t { font-size: 13px; color: var(--ink2); }
+.tile .v { font-size: 26px; font-weight: 650; line-height: 1.3; }
+.tile .b { font-size: 13px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; color: var(--ink2); margin: 4px 0 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key { display: inline-block; width: 18px; height: 2px; border-radius: 1px; flex: none; }
+.swatch { display: inline-block; width: 14px; height: 12px; border-radius: 2px; background: var(--wash); border: 1px solid var(--line); }
+#chart { position: relative; touch-action: pan-y; min-height: 200px; }
+#chart svg { display: block; width: 100%; outline: none; }
+#chart svg:focus-visible { box-shadow: 0 0 0 2px var(--s1); border-radius: 4px; }
+#chart text { font: 12px system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif; fill: var(--muted); font-variant-numeric: tabular-nums; }
+#chart text.end { fill: var(--ink2); font-weight: 600; }
+#tip { position: absolute; pointer-events: none; display: none; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px; font-size: 13px; line-height: 1.5; box-shadow: 0 4px 14px rgba(0,0,0,.12);
+  white-space: nowrap; z-index: 3; }
+#tip .d { color: var(--ink2); margin-bottom: 2px; }
+#tip .r { display: flex; align-items: center; gap: 6px; }
+#tip .r b { font-variant-numeric: tabular-nums; }
+#tip .r i { color: var(--muted); font-style: normal; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 6px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+th { color: var(--muted); font-weight: 500; font-size: 13px; }
+td.l, th.l { text-align: left; }
+td { font-variant-numeric: tabular-nums; }
+.dbar { position: relative; width: 120px; height: 10px; margin-left: auto; }
+.dbar::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--line); }
+.dbar i { position: absolute; top: 0; height: 10px; }
+.dbar i.p { left: calc(50% + 1px); background: var(--s1); border-radius: 0 4px 4px 0; }
+.dbar i.n { right: calc(50% + 1px); background: var(--s0); border-radius: 4px 0 0 4px; }
+ol, ul { padding-left: 1.4em; margin: 0; }
+li { margin: 0 0 10px; }
+li b { color: var(--ink); }
+.cta { text-align: center; padding: 30px 20px; }
+.cta p { color: var(--ink2); max-width: 36em; margin: 0 auto 18px; }
+.btn { display: inline-block; background: var(--ink); color: var(--panel); text-decoration: none; font-weight: 650;
+  padding: 12px 22px; border-radius: 10px; font-size: 17px; }
+.btn:hover { opacity: .9; }
+footer { max-width: 920px; margin: 0 auto; padding: 0 16px 40px; color: var(--muted); font-size: 13px; }
+footer a { color: var(--ink2); }
+#err { color: #c0392b; }
+#scoped { transition: opacity .15s; }
+#scoped.busy { opacity: .5; }
+@media (max-width: 700px) {
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+  .hero-fig .big { font-size: 48px; }
+  .card { padding: 14px 12px; }
+  .dbar { width: 72px; }
+  .seg > span { flex-basis: 100%; }
+  .seg button { padding: 6px 12px; }
+  th, td { padding: 6px 5px; }
+}
+</style>
 </head>
-<body><p>前往 <a href="viewer/">持股變化 viewer</a></p></body>
+<body>
+<header class="top">
+  <span class="brand">台股 LightGBM 排序策略</span>
+  <span class="sp"></span>
+  <a href="https://github.com/neritina-ai/tw-stock-rank-yfinance">GitHub</a>
+  <button id="theme" title="切換深淺色" aria-label="切換深淺色">◐</button>
+</header>
+<main>
+  <section class="hero" style="margin-top: 0">
+    <p class="eyebrow" id="eyebrow">2006 ～ 2026 回測・已扣手續費與證交稅</p>
+    <h1 id="h1">20 年回測打贏大盤</h1>
+    <p class="lede">每週用機器學習模型（LightGBM）替上市櫃股票打分數，買進前 20 名、平均分配；
+      大盤跌破 120 日均線時只留一半部位。資料全部是公開免費的（證交所、Yahoo Finance），任何人都能自己重跑驗證。</p>
+    <div class="card live">
+      <p><b>上線用的是「每週 20 檔」</b><span class="badge">上線版</span></p>
+      <p>研究一開始照先前研究的規格做了「基本款」（每週 30 檔）。之後比較換股頻率與檔數，每週 20 檔的報酬比較高、回檔比較淺
+        （每週 12 ～ 20 檔是表現差不多的高原），所以上線改用 20 檔，其他規則都一樣。下面的數字、圖和表可以切換兩者比較。</p>
+    </div>
+    <div class="seg" role="group" aria-label="切換設定">
+      <span>看哪一個：</span>
+      <button data-exp="w20" aria-pressed="true">每週 20 檔・上線版</button>
+      <button data-exp="base" aria-pressed="false">基本款・每週 30 檔</button>
+    </div>
+  </section>
+
+  <div id="scoped">
+  <section style="margin-top: 0">
+    <div class="hero-fig"><span class="big" id="mult">—</span><span class="cap" id="multcap"></span></div>
+    <div class="tiles" id="tiles"></div>
+    <p class="note" id="err"></p>
+  </section>
+
+  <section>
+    <h2>100 萬的成長</h2>
+    <p class="sub">對數刻度：同樣的高度代表同樣的漲幅倍數。灰底是加權指數跌破 120 日均線、只留半倉的期間；
+      下面那張是從前高跌下來的幅度（回檔）。手指或滑鼠移到圖上可以看每一天的數字。</p>
+    <div class="card">
+      <div class="legend">
+        <span><i class="key" style="background: var(--s1)"></i><span id="lg-name">每週 20 檔（上線版）</span></span>
+        <span><i class="key" style="background: var(--s0)"></i>0050 含息</span>
+        <span><i class="swatch"></i>降半倉期間</span>
+      </div>
+      <div id="chart"><div id="tip"></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 id="yh">逐年比較</h2>
+    <p class="sub" id="ysub"></p>
+    <div class="card tbl"><table id="years"></table></div>
+    <p class="note" id="ynote"></p>
+  </section>
+
+  <section>
+    <h2>十段樣本外檢驗：每一段都是模型沒看過的資料</h2>
+    <p class="sub" id="ssub"></p>
+    <div class="card tbl"><table id="stages"></table></div>
+  </section>
+  </div>
+
+  <section>
+    <h2>怎麼做的</h2>
+    <ol>
+      <li><b>選股範圍</b>：上市櫃普通股，近 20 日成交金額中位數超過 1,000 萬元。</li>
+      <li><b>26 個價量特徵</b>：動能、離 52 週高點多遠、波動、成交量變化等，只用股價和成交量，沒有用財報。</li>
+      <li><b>模型</b>：LightGBM 學的是「接下來 21 個和 63 個交易日，誰會漲得比別人多」，兩個模型的排名取平均。
+        每半年重新訓練一次，只用當時已經知道的資料。</li>
+      <li><b>換股</b>：每週第一個交易日，買分數前 20 名（基本款是 30 名）、平均分配；已經持有的只要還在檔數 4 倍的名次內
+        （20 檔時是前 80 名）就續抱，減少換手。加權指數跌破 120 日均線時，總部位降到一半。</li>
+      <li><b>成本</b>：買賣各付手續費 0.1425%（不打折），賣出再付證交稅 0.3%，都已經從報酬裡扣掉。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>要先說清楚的事</h2>
+    <ul>
+      <li id="cv-recent"></li>
+      <li id="cv-dd"></li>
+      <li><b>倖存者偏誤</b>：Yahoo 沒有已下市公司的股價，回測從來不會買到後來下市的股票。粗估每年可能因此高估 0.5 ～ 0.9 個百分點的報酬，早期更多。</li>
+      <li><b>參數不是事先決定的</b>：組合與模型的參數沿用先前另一個研究，那些參數是用 2008 年以後的資料挑的，前幾段算是看過答案；
+        上線版的 20 檔也是看過整段結果才選的。改成每段只用過去的資料事先挑選，結果差不多。</li>
+      <li><b>這是回測，不是保證</b>，也不是投資建議。</li>
+    </ul>
+  </section>
+
+  <section class="card cta">
+    <h2>看每一次換股買了什麼</h2>
+    <p>Viewer 可以一週一週往前翻：每次換股的前 50 名排行榜、哪些股票留下或被汰除、每檔股票的 K 線和歷次分數，
+      也能切換基本款、每月換股等其他設定（上線版的分頁有「上線」標籤）。手機下方有按鈕可以操作。</p>
+    <a class="btn" id="cta" href="viewer/#exp=w20">打開持股變化 Viewer →</a>
+  </section>
+</main>
+<footer>
+  <p id="foot">完整說明、程式與限制都在
+    <a href="https://github.com/neritina-ai/tw-stock-rank-yfinance">GitHub</a>。</p>
+</footer>
+<script>
+"use strict";
+(() => {
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000;
+const NS = "http://www.w3.org/2000/svg";
+const LIVE = "w20";
+const NAMES = { w20: ["每週 20 檔", "每週 20 檔（上線版）"], base: ["基本款", "基本款（每週 30 檔）"] };
+
+// ---------- theme (shared with the viewer) ----------
+const THEME_KEY = "twrank-theme";
+try { const t = localStorage.getItem(THEME_KEY); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+$("theme").onclick = () => {
+  const de = document.documentElement;
+  const cur = de.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  de.setAttribute("data-theme", next);
+  try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+};
+
+// ---------- formatting ----------
+const pct = (x, d = 1, sign = false) => (sign && x > 0 ? "+" : "") + (x * 100).toFixed(d) + "%";
+const pp = (x) => (x > 0 ? "+" : "") + (x * 100).toFixed(1);
+const num = (x, d = 2) => x.toFixed(d);
+const wan = (x) => Math.round(x * 100).toLocaleString("en-US") + " 萬";
+const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+const ym = (ms) => iso(ms).slice(0, 7);
+const el = (tag, attrs = {}, text) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  return e;
+};
+const svg = (tag, attrs = {}) => {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+};
+
+let ALL = null;          // trading-day calendar (ms)
+const EXPS = {};         // id -> prepared series + metrics (or a pending promise)
+let D = null;            // the experiment on screen
+
+function drawdown(v) {
+  const out = new Float64Array(v.length); let hi = -Infinity;
+  for (let i = 0; i < v.length; i++) { hi = Math.max(hi, v[i]); out[i] = v[i] / hi - 1; }
+  return out;
+}
+function worstDrawdown(v, i0 = 0) {
+  let hi = v[i0], hiAt = i0, best = 0, peak = i0, trough = i0;
+  for (let i = i0; i < v.length; i++) {
+    if (v[i] > hi) { hi = v[i]; hiAt = i; }
+    const d = v[i] / hi - 1;
+    if (d < best) { best = d; peak = hiAt; trough = i; }
+  }
+  return { dd: best, peak, trough };
+}
+async function getJSON(p) {
+  const r = await fetch(p);
+  if (!r.ok) throw new Error(p + " " + r.status);
+  return r.json();
+}
+function loadExp(id) {
+  if (!EXPS[id]) EXPS[id] = getJSON(`viewer/data/exp/${id}.json`).then((exp) => {
+    const c = exp.curve, n = c.nav.length;
+    // the curve starts at the first trade; prepend 1.0 the day before so growth is measured from cash
+    const e = { id, n: n + 1, days: ALL.slice(c.d0 - 1, c.d0 + n), m: exp.metrics,
+      nav: Float64Array.from([1, ...c.nav]), bench: Float64Array.from([1, ...c.bench]), expo: Float64Array.from([1, ...c.expo]) };
+    e.dd = drawdown(e.nav); e.dd0 = drawdown(e.bench);
+    return (EXPS[id] = e);
+  }).catch((err) => { delete EXPS[id]; throw err; });
+  return Promise.resolve(EXPS[id]);
+}
+
+// ---------- the headline always speaks for the live setting ----------
+function fillHeadline(L) {
+  const s = L.m.full.strategy, b = L.m.full["0050"];
+  $("eyebrow").textContent = `${iso(L.days[1]).slice(0, 4)} ～ ${iso(L.days[L.n - 1]).slice(0, 4)} 回測・已扣手續費與證交稅`;
+  $("h1").textContent = `${Math.round(s.years)} 年回測打贏大盤：年化 ${pct(s.cagr)}，0050 含息 ${pct(b.cagr)}`;
+}
+
+// ---------- everything under the switch ----------
+function fillText() {
+  const f = D.m.full, s = f.strategy, b = f["0050"];
+  const [short, long] = NAMES[D.id];
+  const t0 = D.days[1], t1 = D.days[D.n - 1];  // days[0] is the cash day before the first trade
+  const mult = D.nav[D.n - 1] / D.nav[0], bmult = D.bench[D.n - 1] / D.bench[0];
+  $("mult").textContent = `${mult.toFixed(1)} 倍`;
+  $("multcap").replaceChildren(`${long}：${iso(t0).slice(0, 4)} 年初放進 100 萬，到 ${iso(t1)} 變成 `, el("b", {}, wan(mult)),
+    `；同期買 0050 含息是 `, el("b", {}, wan(bmult)), `（${bmult.toFixed(1)} 倍）。`);
+  const tiles = [
+    ["年化報酬", pct(s.cagr, 1, true), pct(b.cagr, 1, true)],
+    ["Sharpe（報酬 ÷ 波動）", num(s.sharpe), num(b.sharpe)],
+    ["最大回檔", pct(s.mdd), pct(b.mdd)],
+    ["年化波動", pct(s.vol), pct(b.vol)],
+  ];
+  $("tiles").replaceChildren(...tiles.map(([t, v, bv]) => {
+    const d = el("div", { class: "tile" });
+    d.append(el("div", { class: "t" }, t), el("div", { class: "v" }, v), el("div", { class: "b" }, `0050 含息 ${bv}`));
+    return d;
+  }));
+  $("lg-name").textContent = long;
+
+  // yearly
+  const yrsK = Object.keys(D.m.yearly).sort();
+  const lastY = yrsK[yrsK.length - 1], partial = iso(t1).slice(5) < "12-20";
+  const wins = yrsK.filter((y) => D.m.yearly[y].strategy > D.m.yearly[y]["0050"]).length;
+  $("yh").textContent = `逐年比較：${yrsK.length} 年裡有 ${wins} 年贏 0050`;
+  $("ysub").textContent = `${long}每一年的報酬，和 0050 含息比。藍色長條是贏的幅度，灰色是輸的幅度（單位：百分點）。`;
+  const maxd = Math.max(...yrsK.map((y) => Math.abs(D.m.yearly[y].strategy - D.m.yearly[y]["0050"])));
+  const yt = $("years"); yt.replaceChildren();
+  const hr = el("tr");
+  [["年", "l"], [short], ["0050 含息"], ["差距"], [""]].forEach(([h, c]) => hr.append(el("th", c ? { class: c } : {}, h)));
+  yt.append(el("thead")); yt.tHead.append(hr);
+  const tb = el("tbody"); yt.append(tb);
+  for (const y of yrsK) {
+    const r = D.m.yearly[y], diff = r.strategy - r["0050"];
+    const tr = el("tr");
+    tr.append(el("td", { class: "l" }, y === lastY && partial ? `${y}*` : y), el("td", {}, pct(r.strategy, 1, true)),
+      el("td", {}, pct(r["0050"], 1, true)), el("td", {}, pp(diff)));
+    const bar = el("div", { class: "dbar", "aria-hidden": "true" });
+    const i = el("i", { class: diff >= 0 ? "p" : "n" }); i.style.width = `calc(${(Math.abs(diff) / maxd) * 50}% - 1px)`;
+    bar.append(i);
+    const td = el("td"); td.append(bar); tr.append(td);
+    tb.append(tr);
+  }
+  $("ynote").textContent = (partial ? `* ${lastY} 只到 ${iso(t1).slice(5).replace("-", "/")}。` : "") +
+    "2006 ～ 2009 證交所沒有 0050 的日資料，用加權報酬指數（含息）代替，兩者都是含息的大型股報酬，走勢相近。";
+
+  // stages
+  const st = D.m.stages;
+  const sBetter = st.filter((x) => x.strategy.sharpe > x["0050"].sharpe).length;
+  const rBetter = st.filter((x) => x.strategy.cagr > x["0050"].cagr).length;
+  const allPos = st.every((x) => x.strategy.sharpe > 0);
+  const avg = st.reduce((a, x) => a + x.strategy.sharpe, 0) / st.length;
+  $("ssub").textContent = `從 ${st[0].start.slice(0, 4)} 年起每兩年切一段（最後一段從 ${st[st.length - 1].start.slice(0, 4)} 年到現在）。` +
+    "每一段的模型只用那一段開始以前的資料訓練，所以每段的成績都是在考沒看過的題目。" +
+    `${long}${st.length} 段的 Sharpe ${allPos ? "都是正的" : "不全是正的"}、平均 ${avg.toFixed(2)}，有 ${sBetter} 段比 0050 高；` +
+    `報酬率則是 ${rBetter} 段比 0050 高。`;
+  const stt = $("stages"); stt.replaceChildren();
+  const sh = el("tr");
+  [["期間", "l"], [`${short} Sharpe`], ["0050 Sharpe"], [`${short}年化`], ["0050 年化"], ["最大回檔"]].forEach(([h, c]) => sh.append(el("th", c ? { class: c } : {}, h)));
+  stt.append(el("thead")); stt.tHead.append(sh);
+  const sb = el("tbody"); stt.append(sb);
+  for (const x of st) {
+    const tr = el("tr");
+    tr.append(el("td", { class: "l" }, `${x.start.slice(0, 7)} ～ ${x.end.slice(0, 7)}`), el("td", {}, num(x.strategy.sharpe)),
+      el("td", {}, num(x["0050"].sharpe)), el("td", {}, pct(x.strategy.cagr, 1, true)), el("td", {}, pct(x["0050"].cagr, 1, true)),
+      el("td", {}, pct(x.strategy.mdd)));
+    sb.append(tr);
+  }
+
+  // caveats that carry numbers
+  const last = st[st.length - 1];
+  $("cv-recent").replaceChildren(el("b", {}, last.strategy.cagr < last["0050"].cagr ? "近兩年追不上大盤" : "近兩年"),
+    `：${last.start.slice(0, 4)} 年到現在，${short}年化 ${pct(last.strategy.cagr, 1, true)}，0050 含息 ${pct(last["0050"].cagr, 1, true)}。` +
+    "這波漲勢集中在台積電等少數權值股，平均分配的組合天生吃不到。");
+  const w = worstDrawdown(D.nav), wb = worstDrawdown(D.bench);
+  const i2010 = D.days.findIndex((t) => t >= Date.UTC(2010, 0, 1));
+  const w10 = worstDrawdown(D.nav, i2010);
+  $("cv-dd").replaceChildren(el("b", {}, "跌起來還是很痛"),
+    `：${short}最大回檔 ${pct(w.dd)}（${ym(D.days[w.peak])} → ${ym(D.days[w.trough])}，金融海嘯），0050 含息 ${pct(wb.dd)}。` +
+    `2010 年以後最大回檔是 ${pct(w10.dd)}，但那種行情再來一次，要準備承受三、四成的跌幅。`);
+  $("cta").href = `viewer/#exp=${D.id}`;
+  $("foot").replaceChildren(`回測期間 ${iso(t0)} ～ ${iso(t1)}，報酬已扣交易成本。完整說明、程式與限制都在 `,
+    el("a", { href: "https://github.com/neritina-ai/tw-stock-rank-yfinance" }, "GitHub"), "。");
+}
+
+// ---------- chart: growth of 1 (log) over drawdown, one shared time axis ----------
+const CH = {};
+function drawChart() {
+  const box = $("chart"), W = box.clientWidth;
+  if (!W || !D) return;
+  const phone = W < 560;
+  const P = { l: phone ? 36 : 44, r: phone ? 46 : 56, t: 10 };
+  const H1 = phone ? 230 : 310, GAP = 22, H2 = phone ? 90 : 116, XL = 24;
+  const H = P.t + H1 + GAP + H2 + XL;
+  const pw = W - P.l - P.r, n = D.n;
+  const X = (i) => P.l + (i / (n - 1)) * pw;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < n; i++) { lo = Math.min(lo, D.nav[i], D.bench[i]); hi = Math.max(hi, D.nav[i], D.bench[i]); }
+  const l0 = Math.log(lo * 0.92), l1 = Math.log(hi * 1.08);
+  const Y1 = (v) => P.t + (1 - (Math.log(v) - l0) / (l1 - l0)) * H1;
+  let dmin = 0;
+  for (let i = 0; i < n; i++) dmin = Math.min(dmin, D.dd[i], D.dd0[i]);
+  dmin *= 1.08;
+  const y2t = P.t + H1 + GAP;
+  const Y2 = (d) => y2t + (d / dmin) * H2;
+
+  const s = svg("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, tabindex: "0", role: "img",
+    "aria-label": `${NAMES[D.id][1]}與 0050 含息的資產成長（對數刻度）與回檔。數字在下方的逐年與分段表格。` });
+  const grid = (y) => s.append(svg("line", { x1: P.l, x2: P.l + pw, y1: y, y2: y, stroke: "var(--grid)", "stroke-width": 1 }));
+
+  // half-exposure washes (both panels)
+  let a = -1;
+  for (let i = 0; i <= n; i++) {
+    const half = i < n && D.expo[i] < 0.75;
+    if (half && a < 0) a = i;
+    if (!half && a >= 0) {
+      const x0 = X(Math.max(0, a - 0.5)), x1 = X(Math.min(n - 1, i - 0.5));
+      s.append(svg("rect", { x: x0, y: P.t, width: Math.max(1, x1 - x0), height: H1, fill: "var(--wash)" }));
+      s.append(svg("rect", { x: x0, y: y2t, width: Math.max(1, x1 - x0), height: H2, fill: "var(--wash)" }));
+      a = -1;
+    }
+  }
+  // y grid + labels (log multiples, drawdown %)
+  const cand = phone ? [0.5, 1, 2, 5, 10, 20, 50, 100] : [0.5, 1, 2, 3, 5, 10, 20, 30, 50, 100];
+  for (const v of cand) {
+    if (Math.log(v) < l0 || Math.log(v) > l1) continue;
+    const y = Y1(v); grid(y);
+    const t = svg("text", { x: P.l - 6, y: y + 4, "text-anchor": "end" }); t.textContent = `${v}×`; s.append(t);
+  }
+  for (const d of [0, -0.2, -0.4, -0.6]) {
+    if (d < dmin) continue;
+    const y = Y2(d); grid(y);
+    const t = svg("text", { x: P.l - 6, y: y + 4, "text-anchor": "end" }); t.textContent = d === 0 ? "0%" : `${Math.round(d * 100)}%`; s.append(t);
+  }
+  const lab = svg("text", { x: P.l + 4, y: y2t - 6 }); lab.textContent = "回檔"; s.append(lab);
+  // x ticks: Januaries
+  const step = phone ? 4 : 2;
+  const y0 = new Date(D.days[0]).getUTCFullYear(), yN = new Date(D.days[n - 1]).getUTCFullYear();
+  for (let y = y0 + ((step - (y0 % step)) % step); y <= yN; y += step) {
+    const i = D.days.findIndex((t) => t >= Date.UTC(y, 0, 1));
+    if (i < 0) continue;
+    const x = X(i);
+    s.append(svg("line", { x1: x, x2: x, y1: y2t + H2, y2: y2t + H2 + 4, stroke: "var(--line)" }));
+    const t = svg("text", { x, y: H - 6, "text-anchor": "middle" }); t.textContent = y; s.append(t);
+  }
+  s.append(svg("line", { x1: P.l, x2: P.l + pw, y1: y2t + H2, y2: y2t + H2, stroke: "var(--line)" }));
+
+  const path = (arr, Y) => { let p = ""; for (let i = 0; i < n; i++) p += (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(arr[i]).toFixed(1); return p; };
+  // drawdown: strategy wash + lines (0050 behind)
+  s.append(svg("path", { d: path(D.dd, Y2) + `L${X(n - 1).toFixed(1)} ${Y2(0)}L${X(0).toFixed(1)} ${Y2(0)}Z`, fill: "var(--s1wash)" }));
+  s.append(svg("path", { d: path(D.dd0, Y2), fill: "none", stroke: "var(--s0)", "stroke-width": 1.5, "stroke-linejoin": "round" }));
+  s.append(svg("path", { d: path(D.dd, Y2), fill: "none", stroke: "var(--s1)", "stroke-width": 1.5, "stroke-linejoin": "round" }));
+  // growth lines
+  s.append(svg("path", { d: path(D.bench, Y1), fill: "none", stroke: "var(--s0)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  s.append(svg("path", { d: path(D.nav, Y1), fill: "none", stroke: "var(--s1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  // end labels (values; the legend names the series)
+  let ya = Y1(D.nav[n - 1]), yb = Y1(D.bench[n - 1]);
+  if (Math.abs(ya - yb) < 16) { const m = (ya + yb) / 2, sg = Math.sign(yb - ya) || 1; ya = m - 8 * sg; yb = m + 8 * sg; }
+  for (const [v, y] of [[D.nav[n - 1] / D.nav[0], ya], [D.bench[n - 1] / D.bench[0], yb]]) {
+    const t = svg("text", { x: P.l + pw + 6, y: y + 4, class: "end" }); t.textContent = `${v.toFixed(1)}×`; s.append(t);
+  }
+  // hover layer
+  const hov = svg("g", { visibility: "hidden" });
+  const cross = svg("line", { y1: P.t, y2: y2t + H2, stroke: "var(--ink2)", "stroke-width": 1 });
+  hov.append(cross);
+  const dot = (color) => { const c = svg("circle", { r: 4, fill: color, stroke: "var(--panel)", "stroke-width": 2 }); hov.append(c); return c; };
+  const d1 = dot("var(--s0)"), d2 = dot("var(--s1)"), d3 = dot("var(--s0)"), d4 = dot("var(--s1)");
+  s.append(hov);
+  s.append(svg("rect", { x: P.l, y: 0, width: pw, height: H, fill: "transparent" }));
+  Object.assign(CH, { X, Y1, Y2, P, pw, hov, cross, d1, d2, d3, d4, W, n });
+
+  box.querySelector("svg")?.remove();
+  box.prepend(s);
+  const at = (clientX) => {
+    const r = s.getBoundingClientRect();
+    return Math.max(0, Math.min(n - 1, Math.round(((clientX - r.left - P.l) / pw) * (n - 1))));
+  };
+  s.addEventListener("pointermove", (ev) => show(at(ev.clientX)));
+  s.addEventListener("pointerdown", (ev) => show(at(ev.clientX)));
+  s.addEventListener("pointerleave", (ev) => { if (ev.pointerType === "mouse") hide(); });
+  s.addEventListener("focus", () => show(CH.i ?? n - 1));
+  s.addEventListener("blur", hide);
+  s.addEventListener("keydown", (ev) => {
+    const k = ev.key, st = ev.shiftKey ? 252 : 21;
+    if (k === "ArrowLeft") show(Math.max(0, (CH.i ?? n - 1) - st));
+    else if (k === "ArrowRight") show(Math.min(n - 1, (CH.i ?? n - 1) + st));
+    else if (k === "Home") show(0);
+    else if (k === "End") show(n - 1);
+    else if (k === "Escape") hide();
+    else return;
+    ev.preventDefault();
+  });
+  if (CH.i != null && CH.visible) show(Math.min(CH.i, n - 1)); else hide();
+}
+function show(i) {
+  CH.i = i; CH.visible = true;
+  const x = CH.X(i);
+  CH.cross.setAttribute("x1", x); CH.cross.setAttribute("x2", x);
+  const put = (c, y) => { c.setAttribute("cx", x); c.setAttribute("cy", y); };
+  put(CH.d1, CH.Y1(D.bench[i])); put(CH.d2, CH.Y1(D.nav[i])); put(CH.d3, CH.Y2(D.dd0[i])); put(CH.d4, CH.Y2(D.dd[i]));
+  CH.hov.setAttribute("visibility", "visible");
+  const tip = $("tip");
+  const row = (color, val, label, dd) => {
+    const r = el("div", { class: "r" });
+    const k = el("i", { class: "key" }); k.style.background = color;
+    r.append(k, el("b", {}, val), el("span", {}, label), el("i", {}, `回檔 ${pct(dd)}`));
+    return r;
+  };
+  tip.replaceChildren(el("div", { class: "d" }, iso(D.days[i]) + (D.expo[i] < 0.75 ? "・半倉" : "")),
+    row("var(--s1)", wan(D.nav[i] / D.nav[0]), NAMES[D.id][0], D.dd[i]),
+    row("var(--s0)", wan(D.bench[i] / D.bench[0]), "0050 含息", D.dd0[i]));
+  tip.style.display = "block";
+  const tw = tip.offsetWidth, left = x + 12 + tw > CH.W ? x - 12 - tw : x + 12;
+  tip.style.left = Math.max(0, left) + "px"; tip.style.top = (CH.P.t + 6) + "px";
+}
+function hide() {
+  CH.visible = false;
+  if (CH.hov) CH.hov.setAttribute("visibility", "hidden");
+  $("tip").style.display = "none";
+}
+
+async function select(id) {
+  document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.exp === id)));
+  $("scoped").classList.add("busy");   // keep the previous render while the other experiment loads
+  try {
+    const e = await loadExp(id);
+    if (document.querySelector(".seg button[aria-pressed=true]").dataset.exp !== id) return;
+    D = e; fillText(); drawChart();
+  } catch (err) { $("err").textContent = "資料載入失敗：" + err.message; }
+  finally { $("scoped").classList.remove("busy"); }
+}
+async function boot() {
+  const meta = await getJSON("viewer/data/meta.json");
+  ALL = [Date.parse(meta.d0 + "T00:00:00Z")];
+  for (const d of meta.dd) ALL.push(ALL[ALL.length - 1] + d * DAY);
+  fillHeadline(await loadExp(LIVE));
+  await select(LIVE);
+  document.querySelector(".seg").addEventListener("click", (ev) => { const b = ev.target.closest("button"); if (b) select(b.dataset.exp); });
+  new ResizeObserver(() => { if (CH.W !== $("chart").clientWidth) drawChart(); }).observe($("chart"));
+}
+boot().catch((e) => { $("err").textContent = "資料載入失敗：" + e.message; });
+})();
+</script>
+</body>
 </html>
