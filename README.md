@@ -8,6 +8,8 @@
 這個 repo 重做先前另一個 LightGBM 排序研究：那個研究用私有的日 K 資料庫，2018 年以前另外加了基本面與籌碼特徵，
 2019 年以後只剩價量。既然最後只用價量，這裡全部改用公開資料從頭寫，資料也從 2000 年開始，比原研究長。
 需求的演進記在 [genesis/](genesis/README.md)。
+資料下載、股票清單、快取與 `data.lock`、換股日與檔數的掃描、viewer 與疊加圖，沿用同系列
+[tw-stock-stable-yfinance](https://github.com/caridina-ai/tw-stock-stable-yfinance)（用對數線性回歸挑「長期穩定上漲」股票）的做法。
 
 ## 結論
 
@@ -54,7 +56,7 @@
 
 ### 網頁 viewer
 
-[`docs/viewer/`](docs/viewer/index.html)（GitHub Pages 開啟 `docs/` 後即可線上看；本機見[怎麼重跑](#怎麼重跑)）
+線上看：<https://neritina-ai.github.io/tw-stock-rank-yfinance/viewer/>（程式在 [`docs/viewer/`](docs/viewer/index.html)；本機見[怎麼重跑](#怎麼重跑)）
 
 * **左邊排行榜**：每次換股時分數前 50 名，加上排名外但還在續抱、或這次被汰除的股票；分數是排名百分位（100 = 最好）。
   持股依連續持有多久由黃轉紅，被剔除的依剔除多久由深綠漸淡（一年後不再上色）
