@@ -448,7 +448,7 @@ def next_trade_day(spec, last: pd.Timestamp) -> pd.Timestamp:
     return d
 
 
-def plan(date=None, capital: float | None = None, ledger: str | None = None, exp: str = "w20",
+def plan(date=None, capital: float | None = None, ledger: str | None = None, exp: str = "w12",
          scheme: str = "B", discount: float = 0.6, min_fee_lot: float = 20.0,
          min_fee_odd: float = 1.0, slip_odd: float = 0.002, reserve: float = 0.0,
          force: bool = False, log=print) -> dict:

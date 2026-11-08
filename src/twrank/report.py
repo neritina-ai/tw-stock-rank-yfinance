@@ -167,8 +167,9 @@ def equity_png(ids: list[str], path) -> None:
         s = X.load_summary(i)
         nav = (1 + c["ret"]).cumprod()
         idx = c.index
+        tags = X.get(i).tags
         ax.plot(nav.index, nav, color=colours[k % len(colours)], lw=1.8 if k == 0 else 1.1,
-                label=s["label"])
+                label=s["label"] + "".join(f"（{t}）" for t in tags))
         dd = nav / nav.cummax() - 1
         ax2.plot(dd.index, dd, color=colours[k % len(colours)], lw=1.3 if k == 0 else 0.8)
     for lab, px, style in (("0050 含息", load_bench(), (0, (4, 3))),
@@ -216,5 +217,5 @@ def build(ids: list[str] | None = None, log=print) -> None:
     parts += ["## 倖存者偏誤", "", text, ""]
     (RESULTS_DIR / "survivorship.json").write_text(json.dumps(surv, indent=1), encoding="utf-8")
     (RESULTS_DIR / "report.md").write_text("\n".join(parts), encoding="utf-8")
-    equity_png([i for i in ("base", "w20", "m11n20", "nohalf") if i in ids], RESULTS_DIR / "equity.png")
+    equity_png([i for i in ("w12", "base", "m11n20", "nohalf") if i in ids], RESULTS_DIR / "equity.png")
     log(f"wrote {RESULTS_DIR / 'report.md'} and equity.png")

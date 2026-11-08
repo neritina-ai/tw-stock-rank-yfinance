@@ -13,6 +13,10 @@ GitHub Pages only serves files, so everything is pre-computed:
     actually traded on the buy and the sell day (Yahoo's raw open times the
     later split ratios, as in ``lots``) and the dividend-inclusive return
     between the two adjusted opens, in basis points, before costs.
+``data/curves.json``
+    growth of 1 for every experiment, 0050 (total return) and the TAIEX price
+    index on one calendar, sampled every fifth trading day plus the last one;
+    the results page overlays them.
 ``data/px/<stock>.bin``
     one stock, fetched on demand: zlib-compressed little-endian arrays of
     ``n`` days each -- int16 close in log ticks of 0.1% (-32768 = no bar),
@@ -33,9 +37,9 @@ import pandas as pd
 
 from . import experiments as X
 from .config import DOCS_DIR
-from .data import load_bench, load_panel, read_lock, split_factor
+from .data import load_bench, load_index, load_panel, read_lock, split_factor
 from .features import LOOKBACK, calendar
-from .metrics import bench_returns
+from .metrics import bench_returns, summary
 from .portfolio import score_panel
 from .universe import name_map
 
@@ -158,6 +162,34 @@ def export_experiment(spec, days: pd.DatetimeIndex, out: Path, opens=None) -> tu
     return union, size
 
 
+def export_curves(specs, days: pd.DatetimeIndex, out: Path) -> int:
+    """Every experiment and both benchmarks as growth of 1 from one cash day, weekly samples."""
+    rets = {e.id: X.load_curve(e.id)["ret"] for e in specs}
+    i0 = days.get_loc(min(r.index[0] for r in rets.values()))
+    idx = days[i0 - 1:]  # the cash day before the first trade is 1.0 for everyone
+    pick = list(range(0, len(idx), 5))
+    if pick[-1] != len(idx) - 1:
+        pick.append(len(idx) - 1)
+
+    def grow(r: pd.Series) -> list:
+        g = (1 + r.reindex(idx).fillna(0.0)).cumprod().to_numpy()
+        return [float(f"{g[k] / g[0]:.4g}") for k in pick]
+
+    def stats(m: dict) -> dict:
+        return {k: _r(m[k]) for k in ("cagr", "sharpe", "mdd")}
+
+    run = idx[1:]  # benchmarks start on the first trade day, as in each experiment's curve
+    bench = {"0050": bench_returns(load_bench(), run), "taiex": bench_returns(load_index()["Close"], run)}
+    obj = {
+        "d": [i0 - 1 + k for k in pick],
+        "exps": {k: grow(r) for k, r in rets.items()},
+        "bench": {k: grow(r) for k, r in bench.items()},
+        "m": {**{e.id: stats(X.load_summary(e.id)["full"]["strategy"]) for e in specs},
+              **{k: stats(summary(r)) for k, r in bench.items()}},
+    }
+    return _dump(obj, out / "data" / "curves.json")
+
+
 def export_prices(stocks: set[str], days: pd.DatetimeIndex, out: Path) -> int:
     o, h, l, c = (load_panel(k).reindex(days) for k in ("open", "high", "low", "close"))
     pcts = {k: score_panel(k).rank(axis=1, pct=True).reindex(days) for k in ("ens", "s21", "s63")}
@@ -214,5 +246,6 @@ def build(log=print) -> None:
         "built": pd.Timestamp.now().strftime("%Y-%m-%d"),
     }
     _dump(meta, OUT / "data" / "meta.json")
+    log(f"curves: {export_curves(specs, days, OUT) / 1e3:.0f} kB")
     total = export_prices(union, days, OUT)
     log(f"px: {len(union)} stocks, {total / 1e6:.1f} MB -> {OUT}")

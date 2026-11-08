@@ -187,14 +187,18 @@ def save_json(obj, name: str) -> None:
 
 REC_DAY = 11  # best day on the day-smoothed Sharpe map at 20 names (days 9-15 all similar)
 REC_SIZE = 20  # on the plateau of both schedules (weekly 12-20, monthly 20-30)
+LIVE_SIZE = 12  # the live book: weekly 12 ties weekly 20 with 40% fewer orders (results/size)
 
-REBALANCE_EXPERIMENTS = [
-    X.BASE.with_(id="w20", label="每週 20 檔", top_n=REC_SIZE, tags=("上線",),  # live.plan's default
-                 note="建議設定：每週換股、前 20 名，其餘同基本款"),
+REBALANCE_EXPERIMENTS = [  # weekly books side by side (20, live 12, 8), then monthly
+    X.BASE.with_(id="w20", label="每週 20 檔", top_n=REC_SIZE,
+                 note="Sharpe 最高的檔數：每週換股、前 20 名，其餘同基本款"),
+    X.BASE.with_(id=f"w{LIVE_SIZE}", label=f"每週 {LIVE_SIZE} 檔", top_n=LIVE_SIZE,
+                 tags=("上線",),  # live.plan's default
+                 note=f"上線設定：每週換股、前 {LIVE_SIZE} 名，其餘同基本款（和 20 檔分不出高下，下單少四成）"),
+    X.BASE.with_(id="w8", label="每週 8 檔", top_n=8,
+                 note="接近臨界值的集中組合：每週換股、前 8 名"),
     X.BASE.with_(id="m11n20", label=f"每月 {REC_DAY} 日 20 檔", schedule="monthly", day=REC_DAY,
                  top_n=REC_SIZE, note=f"每月換股的建議：每月 {REC_DAY} 日（休市順延）、前 20 名，其餘同基本款"),
     X.BASE.with_(id="m11n30", label=f"每月 {REC_DAY} 日 30 檔", schedule="monthly", day=REC_DAY,
                  note=f"只把基本款改成每月 {REC_DAY} 日換股"),
-    X.BASE.with_(id="w8", label="每週 8 檔", top_n=8,
-                 note="接近臨界值的集中組合：每週換股、前 8 名"),
 ]

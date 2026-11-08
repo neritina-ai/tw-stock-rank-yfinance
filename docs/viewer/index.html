@@ -359,7 +359,7 @@ function renderList() {
     if (st.held) stat = st.added ? "新進" : `持有 ${st.heldWeeks} 週`;
     else if (st.droppedDays != null) {
       if (st.dropped) { stat = tripShort(r); tip = tripLong(r); }
-      else stat = st.droppedDays <= DROP_FADE ? `剔除 ${st.droppedWeeks} 週前` : "曾持有";
+      else stat = st.droppedDays <= DROP_FADE ? `已剔除 ${st.droppedWeeks} 週` : "曾持有";
     }
     const cls = [i === S.si ? "cur" : "", i === t.top ? "sep" : ""].join(" ");
     html += `<tr data-i="${i}" class="${cls}" style="${rowStyle(st)}"><td>${i < t.top ? i + 1 : "–"}</td>` +
@@ -558,7 +558,7 @@ function renderStockHead() {
   const st = statusOf(r, t);
   const name = S.meta.names[r.sid] || "";
   const stat = st.held ? (st.added ? "本次新進" : `已連續持有 ${st.heldWeeks} 週`) :
-    st.droppedDays != null ? (st.dropped ? "本次汰除" + (tripLong(r) ? "：" + tripLong(r) : "") : `剔除於 ${st.droppedWeeks} 週前`) : "未持有";
+    st.droppedDays != null ? (st.dropped ? "本次汰除" + (tripLong(r) ? "：" + tripLong(r) : "") : `已剔除 ${st.droppedWeeks} 週`) : "未持有";
   $("stockhead").innerHTML = `<span class="nm">${r.sid} ${name}</span>` +
     `<span class="meta">第 ${S.si < t.top ? S.si + 1 : "–"} 名・分數 ${r.p >= 0 ? (r.p / 10).toFixed(1) : "—"}・權重 ${(r.w / 100).toFixed(2)}%・${stat}</span>` +
     `<span class="meta" style="margin-left:auto"><span style="display:inline-block;width:12px;height:9px;background:var(--look);border:1px solid var(--line)"></span> 回推 ${S.meta.lookback} 個交易日　` +
@@ -684,7 +684,7 @@ function act(k) {
   else if (k === "PageUp") setTrade(S.ti - 10);
   else if (k === "Enter") { S.zoom = !S.zoom; renderChart(); writeHash(); }
   else if (k === "l" || k === "L") { S.log = !S.log; renderChart(); }
-  else if (/^[1-9]$/.test(k)) { const e = S.meta.exps[+k - 1]; if (e) setExperiment(e.id); }
+  else if (/^[0-9]$/.test(k)) { const e = S.meta.exps[k === "0" ? 9 : +k - 1]; if (e) setExperiment(e.id); }
   else return false;
   syncPad();
   return true;
@@ -742,11 +742,12 @@ async function boot() {
   const days = [Date.parse(S.meta.d0 + "T00:00:00Z")];
   for (const d of S.meta.dd) days.push(days[days.length - 1] + d * DAY);
   S.days = days;
-  $("tabs").innerHTML = S.meta.exps.map((e, i) => `<button data-id="${e.id}" title="${e.note}">${i < 9 ? `<kbd>${i + 1}</kbd>` : ""}${e.label}${(e.tags || []).map((t) => `<span class="tg">${t}</span>`).join("")}</button>`).join("");
+  $("tabs").innerHTML = S.meta.exps.map((e, i) => `<button data-id="${e.id}" title="${e.note}">${i < 10 ? `<kbd>${(i + 1) % 10}</kbd>` : ""}${e.label}${(e.tags || []).map((t) => `<span class="tg">${t}</span>`).join("")}</button>`).join("");
   $("tabs").addEventListener("click", (ev) => { const b = ev.target.closest("button"); if (b) setExperiment(b.dataset.id); });
   renderLegend();
   const h = readHash();
-  const id = S.meta.exps.some((e) => e.id === h.exp) ? h.exp : S.meta.exps[0].id;
+  const live = S.meta.exps.find((e) => (e.tags || []).includes("上線")) || S.meta.exps[0];
+  const id = S.meta.exps.some((e) => e.id === h.exp) ? h.exp : live.id;
   S.exp = await loadExp(id);
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.id === id));
   S.ti = S.exp.trades.length - 1;

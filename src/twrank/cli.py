@@ -145,6 +145,18 @@ def _cmd_rebalance_report(args) -> None:
     build(log=_log)
 
 
+def _cmd_size(args) -> None:
+    from . import size
+
+    size.run(log=_log)
+
+
+def _cmd_size_report(args) -> None:
+    from . import size
+
+    size.build(log=_log)
+
+
 def _cmd_oddlot(args) -> None:
     from . import deploy, oddlot
 
@@ -273,6 +285,10 @@ def build_parser() -> argparse.ArgumentParser:
         func=_cmd_rebalance)
     sub.add_parser("rebalance-report", help="results/rebalance/SUMMARY.md and figures").set_defaults(
         func=_cmd_rebalance_report)
+    sub.add_parser("size", help="weekly settings sweep at 10/12/15 names (about 2 minutes)"
+                   ).set_defaults(func=_cmd_size)
+    sub.add_parser("size-report", help="results/size/SUMMARY.md: weekly 12 vs 20 names"
+                   ).set_defaults(func=_cmd_size_report)
     sub.add_parser("viewer", help="export docs/viewer").set_defaults(func=_cmd_viewer)
     sub.add_parser("report", help="results/report.md").set_defaults(func=_cmd_report)
 
@@ -291,7 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--date", help="trade date (default: the session after the latest data)")
     p.add_argument("--capital", type=float, help="opens a new paper account with this much cash")
     p.add_argument("--ledger", help="account name under paper/ or a directory (default: default)")
-    p.add_argument("--exp", default="w20", help="experiment id for a new account (default: w20)")
+    p.add_argument("--exp", default="w12", help="experiment id for a new account (default: w12)")
     p.add_argument("--scheme", choices=["A", "B"], default="B",
                    help="A: odd lots only; B: whole lots + odd remainder (default: B)")
     p.add_argument("--discount", type=float, default=0.6, help="fee multiplier (default: 0.6)")
