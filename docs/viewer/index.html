@@ -311,8 +311,8 @@ function tripLong(row) {
   const x = row.trip; if (!x) return "本次汰除";
   const b = boughtAt(row.sid), t = trade();
   const buy = `${b ? fmtD(b.d) + " " : ""}開盤買 ${x.bp == null ? "（缺資料）" : x.bp}`;
-  if (x.sp == null) return `本次汰除：${buy}；${fmtD(t.d)} 沒有成交（停牌或無量），要等之後有成交才賣得掉`;
-  return `本次汰除：${buy} → ${fmtD(t.d)} 開盤賣 ${x.sp}` +
+  if (x.sp == null) return `${buy}；${fmtD(t.d)} 沒有成交（停牌或無量），要等之後有成交才賣得掉`;
+  return `${buy} → ${fmtD(t.d)} 開盤賣 ${x.sp}` +
     `${b ? `，持有 ${weeks(b.d, t.d)} 週` : ""}${x.ret == null ? "" : `，含息報酬 ${fret(x.ret)}`}（未扣成本）`;
 }
 function nextTradeDay(ti) {
@@ -345,8 +345,7 @@ function renderLegend() {
   const g = (stops) => "linear-gradient(90deg," + stops.map(([x, c]) => `rgb(${c}) ${Math.min(100, x / 9)}%`).join(",") + ")";
   $("legend").innerHTML =
     `<span><i style="background:${g(HELD)}"></i>持有：剛選入 → 持有愈久愈紅</span>` +
-    `<span><i style="background:linear-gradient(90deg, rgba(26,140,75,.9), rgba(26,140,75,.06))"></i>剔除：剛剔除 → 一年後淡出</span>` +
-    `<span>本次汰除：買價→賣價 含息報酬</span>`;
+    `<span><i style="background:linear-gradient(90deg, rgba(26,140,75,.9), rgba(26,140,75,.06))"></i>剔除：剛剔除（買價→賣價 含息報酬）→ 一年後淡出</span>`;
 }
 function renderList() {
   const t = trade();
