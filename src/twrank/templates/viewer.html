@@ -307,8 +307,8 @@ function tripShort(row) {
   const x = row.trip; if (!x) return "本次汰除";
   return `${x.bp == null ? "—" : fpx(x.bp)}→${x.sp == null ? "未成交" : fpx(x.sp)}${x.ret == null ? "" : " " + fret(x.ret)}`;
 }
-function tripLong(row) {
-  const x = row.trip; if (!x) return "本次汰除";
+function tripLong(row) {  // the dates and prices; callers name the state where it is not shown green
+  const x = row.trip; if (!x) return "";
   const b = boughtAt(row.sid), t = trade();
   const buy = `${b ? fmtD(b.d) + " " : ""}開盤買 ${x.bp == null ? "（缺資料）" : x.bp}`;
   if (x.sp == null) return `${buy}；${fmtD(t.d)} 沒有成交（停牌或無量），要等之後有成交才賣得掉`;
@@ -558,7 +558,7 @@ function renderStockHead() {
   const st = statusOf(r, t);
   const name = S.meta.names[r.sid] || "";
   const stat = st.held ? (st.added ? "本次新進" : `已連續持有 ${st.heldWeeks} 週`) :
-    st.droppedDays != null ? (st.dropped ? tripLong(r) : `剔除於 ${st.droppedWeeks} 週前`) : "未持有";
+    st.droppedDays != null ? (st.dropped ? "本次汰除" + (tripLong(r) ? "：" + tripLong(r) : "") : `剔除於 ${st.droppedWeeks} 週前`) : "未持有";
   $("stockhead").innerHTML = `<span class="nm">${r.sid} ${name}</span>` +
     `<span class="meta">第 ${S.si < t.top ? S.si + 1 : "–"} 名・分數 ${r.p >= 0 ? (r.p / 10).toFixed(1) : "—"}・權重 ${(r.w / 100).toFixed(2)}%・${stat}</span>` +
     `<span class="meta" style="margin-left:auto"><span style="display:inline-block;width:12px;height:9px;background:var(--look);border:1px solid var(--line)"></span> 回推 ${S.meta.lookback} 個交易日　` +
